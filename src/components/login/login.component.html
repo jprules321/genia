@@ -1,0 +1,30 @@
+<div class="login-container">
+  <div class="login-box">
+    <img style="width: 50%; margin-top: 15px" src="https://grdf.ca/wp-content/uploads/2024/09/Garage-remise-logo_horizontal_COULEUR-ET-BLANC_RVB-1024x254.png" alt="Logo GRDF">
+    <h2 class="login-title">Connectez-vous</h2>
+    <div class="form-group">
+      <ejs-textbox
+        placeholder="Courriel"
+        [(ngModel)]="credentials.email"
+        floatLabelType="Auto">
+      </ejs-textbox>
+    </div>
+
+    <div class="form-group">
+      <ejs-textbox
+        placeholder="Password"
+        type="password"
+        [(ngModel)]="credentials.password"
+        floatLabelType="Auto">
+      </ejs-textbox>
+    </div>
+
+    <div class="form-group">
+      <button ejs-button
+        cssClass="e-primary"
+        (click)="onLogin()">
+        Connexion
+      </button>
+    </div>
+  </div>
+</div>

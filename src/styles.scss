@@ -1,0 +1,57 @@
+//@use "../node_modules/@syncfusion/ej2/tailwind3" as * ;
+@use 'mixins/tailwind3-dark.scss' as * ;
+
+//:root {
+//  --color-sf-content-bg-color: rgb(19 19 19);
+//  --color-sf-content-bg-color-alt1: #161616;
+//  --color-sf-content-bg-color-alt2: #232937;
+//  --color-sf-content-bg-color-alt3: #282f3c;
+//  --color-sf-content-bg-color-alt4: #2f3542;
+//  --color-sf-content-bg-color-alt5: #343a47;
+//  --color-sf-content-bg-color-hover: #BF0016;
+//  --color-sf-content-bg-color-pressed: rgba(191, 0, 22, 0.58);
+//  --color-sf-content-bg-color-focus: rgba(191, 0, 22, 0.58);
+//  --color-sf-content-bg-color-selected: rgba(191, 0, 22, 0.58);
+//  --color-sf-content-bg-color-dragged: #242a38;
+//  --color-sf-content-bg-color-disabled: #111827;
+//  --color-sf-flyout-bg-color: #1a212f;
+//  --color-sf-flyout-bg-color-hover: #1f2634;
+//  --color-sf-flyout-bg-color-pressed: #242a38;
+//  --color-sf-flyout-bg-color-focus: #1f2634;
+//  --color-sf-flyout-bg-color-selected: #2e3441;
+//  --color-sf-flyout-bg-color-disabled: #1a212f;
+//  --color-sf-overlay-bg-color: rgba(107, 114, 128, .75);
+//  --color-sf-table-bg-color-hover: #1a212f;
+//  --color-sf-table-bg-color-pressed: #242a38;
+//  --color-sf-table-bg-color-selected: #2e3441;
+//  --color-sf-border-light: #1f1f1f;
+//  --color-sf-primary-outline: rgb(0 80 255);
+//}
+
+body {
+  background: rgb(18 24 35);
+  color: var(--color-sf-content-text-color);
+  margin: 0px;
+}
+.e-spinner-pane {
+  z-index: 99999 !important;
+}
+
+.breadcrumb {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 21px;
+  font-weight: bold;
+  span {
+
+    margin-right: 3px;
+    margin-left: 3px;
+  }
+}
+
+.sticky-toolbar {
+  position: sticky;
+  top: 0;
+}

@@ -1,0 +1,20 @@
+<div class="control-section">
+  <h2>Estimations</h2>
+  <ejs-grid [enablePersistence]="true"
+            *ngIf="estimationEntriesLoaded"
+            #gridComponent
+            (commandClick)="onCommandClick($event)"
+            [dataSource]='entries'
+            [allowPaging]='true'
+            [pageSettings]='pageSettings'
+            [allowSorting]='true'
+            [allowFiltering]='true' [filterSettings]='filterSettings' [toolbar]='toolbar'>
+    <e-columns>
+      <e-column headerText='Actions' textAlign="Left" width='5' [commands]='commands'></e-column>
+      <e-column field='id' headerText='# Estimation' width='7' isPrimaryKey='true' [validationRules]='orderidrules'></e-column>
+      <e-column field='response.full_name' headerText='Nom complet' width='15'></e-column>
+      <e-column field='response.email' headerText='Courriel' width='15'></e-column>
+      <e-column field='created_at' headerText="Date d'envoi" width='15' format="yMd"></e-column>
+    </e-columns>
+  </ejs-grid>
+</div>

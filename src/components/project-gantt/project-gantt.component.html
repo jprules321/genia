@@ -1,0 +1,43 @@
+@if (isLoading) {
+  <div class="loading-indicator">
+    Loading Project Data...
+    <div class="spinner"></div>
+  </div>
+}
+
+@if (errorMessage) {
+  <div class="error-message">
+    <p>Error: {{ errorMessage }}</p>
+    <button (click)="loadGanttData()">Retry</button>
+  </div>
+}
+
+@if (!isLoading) { <div class="gantt-container">
+  <ejs-gantt #gantt
+             [dataSource]="ganttData"
+             [taskFields]="taskFields"
+             [editSettings]="editSettings"
+             [toolbar]="toolbar"
+             [columns]="columns"
+             [allowFiltering]="true"
+             [allowSorting]="true"
+             [allowResizing]="true"
+             [allowReordering]="true"
+             [allowRowDragAndDrop]="true"
+             [highlightWeekends]="true"
+             [treeColumnIndex]="1"
+  [splitterSettings]="splitterSettings"
+  [labelSettings]="labelSettings"
+  [projectStartDate]="projectStartDate"
+  [projectEndDate]="projectEndDate"
+  height="600px"
+  width="100%"
+             (actionBegin)="actionBeginHandler($event)"
+  (actionComplete)="actionCompleteHandler($event)"
+  (toolbarClick)="toolbarClickHandler($event)"
+  >
+  </ejs-gantt>
+</div>
+} @else if(!errorMessage) {
+  <p>No project tasks found.</p>
+}

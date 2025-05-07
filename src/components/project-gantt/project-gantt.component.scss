@@ -1,0 +1,44 @@
+.gantt-container {
+  /* Add styling for the container if needed */
+  margin: 20px;
+  border: 1px solid #ccc;
+}
+
+.loading-indicator, .error-message {
+  padding: 20px;
+  text-align: center;
+  font-size: 1.2em;
+}
+
+.error-message {
+  color: red;
+  border: 1px solid red;
+  background-color: #ffebeb;
+  margin: 20px;
+}
+
+.error-message button {
+  margin-left: 10px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+/* Basic Spinner Example */
+.spinner {
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border-left-color: #09f;
+  margin: 10px auto;
+  animation: spin 1s ease infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

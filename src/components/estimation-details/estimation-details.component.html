@@ -1,0 +1,530 @@
+<div class="control-section">
+  <div class="breadcrumb">
+    <button ejs-button cssClass="e-link" content="Estimations" routerLink="/estimations"></button><span>/</span><span>#{{entryId}}</span>
+  </div>
+  <ejs-toolbar class="sticky-toolbar">
+
+  </ejs-toolbar>
+</div>
+<div *ngIf="entryData" id="printMe" class="tm_container">
+  <div class="tm_invoice_wrap">
+    <div class="tm_invoice tm_style1" id="tm_download_section">
+      <div class="tm_invoice_in">
+        <div class="tm_invoice_head tm_align_center tm_mb20">
+          <div class="tm_invoice_left">
+            <div class="tm_logo"><img src="https://grdf.ca/wp-content/uploads/2024/09/Garage-remise-logo_horizontal_COULEUR-ET-BLANC_RVB-1024x254.png" alt="Logo"></div>
+          </div>
+          <div class="tm_invoice_right tm_text_right">
+            <div class="tm_primary_color tm_f25 tm_text_uppercase">Estimation</div>
+          </div>
+        </div>
+        <div class="tm_invoice_info tm_mb25">
+          <div class="tm_invoice_seperator tm_gray_bg"></div>
+          <div class="tm_invoice_info_list">
+            <p class="tm_invoice_number tm_m0">#: <b class="tm_primary_color"><strong>{{entryId}}</strong></b></p>
+          </div>
+        </div>
+        <div class="tm_invoice_head tm_mb10">
+          <div class="tm_invoice_left">
+            <p class="tm_mb2"><b class="tm_primary_color">À l'attention de :</b></p>
+            <p class="tm_primary_color">
+              @if (entryData.full_name) {
+                <strong >Nom : </strong>{{entryData.full_name }} <br>
+              }
+              @if (entryData.address_1) {
+                <strong>Adresse : </strong>{{entryData.address_1?.address_line_1 }}, {{entryData.address_1?.city }}, {{entryData.address_1?.zip }}<br>
+              }
+              @if (entryData.phone) {
+               <strong>Tél : </strong>{{entryData.phone }} <br>
+              }
+              @if (entryData.email) {
+               <strong>Courriel : </strong> {{entryData.email }} <br>
+              }
+            </p>
+          </div>
+          <div class="tm_invoice_right tm_text_right">
+            <p class="tm_mb2 tm_f16"><b class="tm_primary_color">Garage et Remise du Fjord</b></p>
+            <p class="tm_primary_color">
+              2425 A Boul. Talbot, Chicoutimi, G7H 5B1<br>
+              estime&#64;grdf.ca <br>
+              (418) 696-2270 <br>
+              RBQ: 8210-4241-58
+            </p>
+          </div>
+        </div>
+        <h2 class="tm_f16 tm_section_heading tm_border_color tm_mb15"><span class="tm_gray_bg">Informations</span></h2>
+        <div class="grid-container tm_mb30 dvh-65">
+          <div>
+            <strong><h4>Dimensions</h4></strong><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Type de bâtiment : </strong> </span>{{quoteResults.type_batiment | titlecase}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Façade : </strong> </span>{{entryData.largeur_en_pieds}}' </b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Profondeur : </strong></span>{{entryData.longeur_en_pieds}}'</b>
+          </div>
+          <div>
+            <strong><h4>Plancher</h4></strong><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Type de plancher : </strong></span>{{entryData.type_de_plancher}}</b><br>
+            @if (entryData.type_de_plancher == 'Béton' || entryData.type_de_plancher == "Béton fibre") {
+              <b class="tm_primary_color tm_medium"><span><strong>Muret de 6 pouces : </strong></span>{{entryData.muret_de_6_pouces}}</b><br>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Mètre de beton : </strong></span>{{quoteResults?.plancher.metreBeton}}<br></b>
+            }
+            @if (entryData.type_de_plancher == 'Bois') {
+              <b class="tm_primary_color tm_medium"><span><strong>Structure plancher : </strong></span>{{entryData.structure_du_plancher}}</b><br>
+            }
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix : </strong></span>{{quoteResults?.plancher.prix}}<br></b>
+            <br>
+            <b class="tm_primary_color tm_medium"><span><strong>Isolation plancher : </strong></span>{{entryData.isolation_plancher}}</b><br>
+            @if (entryData.isolation_plancher == 'Oui') {
+              <b class="tm_primary_color tm_medium"><span><strong>Épaisseur isolation : </strong></span>{{entryData.epaisseur_isolation_plancher}}</b><br>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre isolation : </strong></span>{{quoteResults.isolation_plancher.nombre_feuilles}}<br></b>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix isolation : </strong></span>{{quoteResults.isolation_plancher.prix}}<br></b>
+            }
+
+          </div>
+          <div>
+            <strong><h4>Murs</h4></strong><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Hauteur murs : </strong></span>{{entryData.hauteur_mur}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Matériel murs : </strong></span>{{entryData.materiel_murs}}</b><br>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre matériaux : </strong></span>{{quoteResults?.murs.nombre_materiaux}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix matériaux: </strong></span>{{quoteResults?.murs.prix_materiaux}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre Rip 7/16 : </strong></span>{{quoteResults?.murs.nombre_rip_716}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix Rip 7/16: </strong></span>{{quoteResults?.murs.prix_rip_716}}<br></b>
+            <br class="print-hide">
+            <b class="tm_primary_color tm_medium"><span><strong>Revêtement extérieur : </strong></span>{{entryData.revetement_exterieur}}</b><br>
+            @if (entryData.revetement_exterieur == 'Oui') {
+              <b class="tm_primary_color tm_medium"><span><strong>Type revêtement extérieur : </strong></span>{{entryData.type_finition_exterieure}}</b><br>
+              @if (entryData.couleur_finition_exterieure == 'Autre') {
+                <b class="tm_primary_color tm_medium"><span><strong>Couleur revêtement extérieur : </strong></span>{{entryData.couleur_finition_exterieure_autre}}</b><br>
+              } @else {
+                <b class="tm_primary_color tm_medium"><span><strong>Couleur revêtement extérieur : </strong></span>{{entryData.couleur_finition_exterieure}}</b><br>
+              }
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre revêtements: </strong></span>{{quoteResults?.murs.nombre_revetement}}<br></b>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix revêtement: </strong></span>{{quoteResults?.murs.prix_revetement}}<br></b>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix coins revêtement: </strong></span>{{quoteResults?.murs.prix_revetement_coins}}<br></b>
+              @if (entryData.type_finition_exterieure == 'Métal') {
+                <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Longueur tôle: </strong></span>{{quoteResults?.murs.longeur_tole}}<br></b>
+              }
+            }
+            <br class="print-hide">
+            <b class="tm_primary_color tm_medium"><span><strong>Installation lattes : </strong></span>{{entryData.lattes_revetement}}</b><br>
+            @if(entryData.lattes_revetement == 'Oui') {
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre lattes : </strong></span>{{quoteResults?.murs.nombre_lattes}}<br></b>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix lattes: </strong></span>{{quoteResults?.murs.prix_lattes}}<br></b>
+            }
+            <br class="print-hide">
+            <b class="tm_primary_color tm_medium"><span><strong>Installation Tyvek : </strong></span>{{entryData.installation_tyvek}}</b><br>
+            @if(entryData.installation_tyvek == 'Oui') {
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre Tyvek: </strong></span>{{quoteResults?.murs.nombre_tyvek}}<br></b>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix Tyvek: </strong></span>{{quoteResults?.murs.prix_tyvek}}<br></b>
+            }
+          </div>
+          <div>
+            <strong><h4>Toiture</h4></strong><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Ferme de toit : </strong></span>{{entryData.ferme_de_toit}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Pente de toit : </strong></span>{{entryData.pente_de_toit}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Nombre de versant : </strong></span>{{entryData.nombre_de_versant}}</b><br>
+            <br class="print-hide">
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Longueur trust: </strong></span>{{quoteResults?.toiture.longeur_thrust}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre de trust: </strong></span>{{quoteResults?.toiture.nombre_thrust}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix trusts: </strong></span>{{quoteResults?.toiture.prix_thrust}}<br></b>
+            <br class="print-hide">
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre rip 5/8: </strong></span>{{quoteResults?.toiture.nombre_rip_58}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix rip 5/8: </strong></span>{{quoteResults?.toiture.prix_rip_58}}<br></b>
+            <br class="print-hide">
+            <b class="tm_primary_color tm_medium"><span><strong>Type de revêtement : </strong></span>{{entryData.type_revetement_toiture}}</b><br>
+            @if (entryData.type_revetement_toiture != 'Aucun') {
+              <b class="tm_primary_color tm_medium"><span><strong>Couleur toiture : </strong></span>{{entryData.couleur_toiture}}</b><br>
+              @if (entryData.type_revetement_toiture == 'Métal') {
+                <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Longueur tole: </strong></span>{{quoteResults?.toiture.longeur_tole}}<br></b>
+                <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre tole: </strong></span>{{quoteResults?.toiture.nombre_tole}}<br></b>
+              } @else {
+                <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Nombre paquet bardeau: </strong></span>{{quoteResults?.toiture.nombre_paquet_bardeau}}<br></b>
+              }
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix revêtements: </strong></span>{{quoteResults?.toiture.prix_bardeau}}<br></b>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix sofit: </strong></span>{{quoteResults?.toiture.prix_sofit}}<br></b>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix J-flashing: </strong></span>{{quoteResults?.toiture.prix_j_flashing}}<br></b>
+              <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix facia: </strong></span>{{quoteResults?.toiture.prix_facia}}<br></b>
+            }
+
+          </div>
+          <div>
+            <strong><h4>Portes garage</h4></strong><br>
+            @if (entryData.porte_garage == 'Non') {
+              <b class="tm_primary_color tm_medium"><span><strong>Aucune porte</strong></span></b><br>
+            } @else {
+            <b class="tm_primary_color tm_medium"><span><strong>Nombre porte garage : </strong></span>{{entryData.nombre_porte_garage}}</b><br>
+            @if (Number(entryData.nombre_porte_garage) > 0) {
+              <b class="tm_primary_color tm_medium"><span><strong>Dimension porte garage #1: </strong></span>{{entryData.dimension_porte_garage_1}}</b><br>
+            }
+            @if (Number(entryData.nombre_porte_garage) > 1) {
+              <b class="tm_primary_color tm_medium"><span><strong>Dimension porte garage #2: </strong></span>{{entryData.dimension_porte_garage_2}}</b><br>
+            }
+            @if (Number(entryData.nombre_porte_garage) > 2) {
+              <b class="tm_primary_color tm_medium"><span><strong>Dimension porte garage #3: </strong></span>{{entryData.dimension_porte_garage_3}}</b><br>
+            }
+            @if (Number(entryData.nombre_porte_garage) > 3) {
+              <b class="tm_primary_color tm_medium"><span><strong>Dimension porte garage #4: </strong></span>{{entryData.dimension_porte_garage_4}}</b><br>
+            }
+            <b class="tm_primary_color tm_medium"><span><strong>Couleur porte garage : </strong></span>{{entryData.couleur_porte_garage}}</b><br>
+            @if (entryData.couleur_porte_garage == 'Autre') {
+              <b class="tm_primary_color tm_medium"><span><strong>>Couleur porte garage : </strong></span>{{entryData.couleur_portre_garage_autre}}</b><br>
+            }
+            <b class="tm_primary_color tm_medium"><span><strong>Moteur porte garage : </strong></span>{{entryData.porte_garage_motorise}}</b><br>
+            @if (entryData.porte_garage_motorise == 'Oui') {
+              <b class="tm_primary_color tm_medium"><span><strong>Type de moteur : </strong></span>{{entryData.type_de_moteur}}</b><br>
+            }
+            <b class="tm_primary_color tm_medium"><span><strong>Fenêtres porte garage : </strong></span>{{entryData.porte_garage_avec_fenetre}}</b><br>
+              @if (entryData.porte_garage_avec_fenetre == 'Oui') {
+                @if (Number(entryData.nombre_porte_garage) > 0) {
+                  <b class="tm_primary_color tm_medium"><span><strong>Nombre fenêtres porte garage #1: </strong></span>{{quoteResults.portes.garage.nombre_fenetres_porte_garage_1}}</b><br>
+                }
+                @if (Number(entryData.nombre_porte_garage) > 1) {
+                  <b class="tm_primary_color tm_medium"><span><strong>Nombre fenêtres porte garage #2:</strong></span>{{quoteResults.portes.garage.nombre_fenetres_porte_garage_2}}</b><br>
+                }
+                @if (Number(entryData.nombre_porte_garage) > 2) {
+                  <b class="tm_primary_color tm_medium"><span><strong>Nombre fenêtres porte garage #3: </strong></span>{{quoteResults.portes.garage.nombre_fenetres_porte_garage_3}}</b><br>
+                }
+                @if (Number(entryData.nombre_porte_garage) > 3) {
+                  <b class="tm_primary_color tm_medium"><span><strong>Nombre fenêtres porte garage #4: </strong></span>{{quoteResults.portes.garage.nombre_fenetres_porte_garage_4}}</b><br>
+                }
+              }
+            }
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix portes garage: </strong></span>{{quoteResults?.portes.garage.prix_portes_garage}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix installation portes garage: </strong></span>{{quoteResults?.portes.garage.prix_installation_portes_garage}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix moteurs: </strong></span>{{quoteResults?.portes.garage.prix_moteurs}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix installation moteurs: </strong></span>{{quoteResults?.portes.garage.prix_installation_moteurs}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix fenêtres portes garage: </strong></span>{{quoteResults?.portes.garage.prix_fenetres_portes_garage}}<br></b>
+          </div>
+          <div>
+            <strong><h4>Portes piéton</h4></strong><br>
+            @if (entryData.portes_pieton == 'Non') {
+              <b class="tm_primary_color tm_medium"><span><strong>Aucune porte</strong></span></b><br>
+            } @else {
+            <b class="tm_primary_color tm_medium"><span><strong>Nombre porte piéton : </strong></span>{{entryData.nombre_de_porte_pietons}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Type fenêtre porte piéton : </strong></span>{{entryData.type_fenetre_porte_pieton}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Couleur porte piéton : </strong></span>{{entryData.couleur_porte_pieton}}</b><br>
+            @if (entryData.couleur_porte_pieton == 'Autre') {
+              <b class="tm_primary_color tm_medium"><span><strong>>Couleur porte piéton : </strong></span>{{entryData.couleur_porte_pieton_autre}}</b><br>
+            }
+            }
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix portes piétons: </strong></span>{{quoteResults?.portes.pieton.prix_portes_pieton}}<br></b>
+          </div>
+          <div>
+            <strong><h4>Fenêtres</h4></strong><br>
+            @if (entryData.fenetres_garage == 'Non') {
+              <b class="tm_primary_color tm_medium"><span><strong>Aucune fenêtre</strong></span></b><br>
+            } @else {
+            <b class="tm_primary_color tm_medium"><span><strong>Nombre de fenêtres : </strong></span>{{entryData.nombre_de_fenetres}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Dimension des fenêtres : </strong></span>{{entryData.dimensions_fenetres}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Type de fenêtres : </strong></span>{{entryData.type_de_fenetres}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Couleur des fenêtres : </strong></span>{{entryData.couleur_fenetres}}</b><br>
+            @if (entryData.couleur_fenetres == 'Autre') {
+              <b class="tm_primary_color tm_medium"><span><strong>>Couleur des fenêtres : </strong></span>{{entryData.couleur_fenetres_autre}}</b><br>
+            }
+            }
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix fenêtres: </strong></span>{{quoteResults?.fenetres.prix_fenetres}}<br></b>
+          </div>
+          <div style="width: 67%">
+            <strong><h4>Autre</h4></strong><br>
+            @if (entryData.autres_ajouts && entryData.autres_ajouts.length) {
+              <b class="tm_primary_color tm_medium"><span><strong>Ajouts : </strong></span>{{entryData.autres_ajouts.join(',')}}</b><br>
+            }
+            <b class="tm_primary_color tm_medium"><span><strong>Commentaires : </strong></span>{{entryData.commentaires}}</b><br>
+          </div>
+          <div></div>
+        </div>
+        <h2 class="tm_f12 tm_section_heading tm_border_color tm_mb15"><span class="tm_gray_bg">Dessiner les emplacements des portes et fenêtres</span></h2>
+        <div class="dessin-container">
+          @if (Number(entryData.nombre_de_versant) == 1 || Number(entryData.nombre_de_versant) > 2) {
+            <img src="/assets/2A.png" alt="">
+            <img src="/assets/2B.png" alt="">
+          } @else {
+            <img src="/assets/1A.png" alt="">
+            <img src="/assets/1B.png" alt="">
+          }
+        </div>
+        <h2 class="tm_f12 tm_section_heading tm_border_color tm_mb15"><span class="tm_gray_bg">Options</span></h2>
+        <div class="tm_width_6 tm_mb30" [innerHTML]="adjustmentOptions"></div>
+        <h2 class="tm_f12 tm_section_heading tm_border_color tm_mb15"><span class="tm_gray_bg">Prix</span></h2>
+        <div class="tm_width_6">
+          <div class="tm_mb10">
+            <b class="tm_primary_color tm_f16 tm_medium"><span><strong>Prix total (taxes incluses) : </strong></span></b><br>
+            <b class="print-hide tm_primary_color tm_f18 tm_medium"><span><strong>Construction</strong></span><br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix Construction plancher: </strong></span>{{quoteResults?.construction.prix_plancher}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix Construction coffrage: </strong></span>{{quoteResults?.construction.prix_coffrage}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix Construction atelier: </strong></span>{{quoteResults?.construction.prix_atelier}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix Construction chantier: </strong></span>{{quoteResults?.construction.prix_chantier}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix Construction divers: </strong></span>{{quoteResults?.construction.prix_divers}}<br></b>
+            <b class="print-hide tm_primary_color tm_f18 tm_medium"><span><strong>Totaux</strong></span><br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix matériaux: </strong></span>{{quoteResults?.total.materiaux}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Prix main d'oeuvre : </strong></span>{{quoteResults?.total.maindoeuvre_dollar}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Heures main d'oeuvre : </strong></span>{{quoteResults?.total.maindoeuvre_heures}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Profit : </strong></span>{{quoteResults?.total.profit}}<br></b>
+            <b class="tm_medium print-hide"><span><strong class="tm_accent_color">Grand total : </strong></span>{{quoteResults?.total.grand_total}}<br></b>
+          </div>
+          <div class="tm_mb10">
+            <b class="tm_primary_color tm_f18 tm_medium"><span><strong>{{finalPrice}}</strong></span></b><br>
+          </div>
+        </div>
+        <h2 class="tm_f12 tm_section_heading tm_border_color tm_mb15"><span class="tm_gray_bg">Signatures</span></h2>
+        <div class="tm_width_6">
+          <div class="tm_mb10">
+            <br><b class="tm_primary_color tm_mb5 tm_f14 tm_medium"><span><strong>Nom : </strong>{{entryData.full_name}}</span><br><br>
+            <span><strong>Signature : </strong>_______________________________________</span></b><br>
+            <br><b class="tm_primary_color tm_f14 tm_medium"><span><strong>Date : </strong></span>_______________________________________</b><br>
+          </div>
+        </div>
+        <div class="tm_padd_15_20 tm_round_border" style="margin-top:25px;">
+          <p class="tm_mb0"><b class="tm_primary_color">Termes et conditions</b></p>
+          <p style="text-align: justify" class="tm_m0 tm_primary_color">Le prix indiqué dans cette soumission n’est garanti qu’une fois la soumission signée et l’acompte reçu par Garage et Remise du Fjord (GRDF). L’excavation, le nivellement du terrain et le positionnement final du garage sont sous la responsabilité du client, qui dégage GRDF de toute responsabilité à cet égard. Le client est également responsable de s’assurer que l’espace requis pour la construction est disponible et accessible, incluant l’accès à la portion du terrain nécessaire à la réalisation des travaux de fondation et de structure. La dalle de béton n’est pas garantie. Toute modification demandée par le client, même après la signature, pourra entraîner une révision du prix final.
+          </p><br>
+        </div><!-- .tm_note -->
+        <p style="margin-top: 25px">Au plaisir de vous servir,<br>
+          <strong>Erick Gilbert</strong><br>
+          <i>Garage et Remise du Fjord inc.</i></p>
+      </div>
+    </div>
+  </div>
+  <div class="action-buttons tm_hide_print">
+    <div class="action-buttons-sticky">
+      <button ejs-button (click)="openWebsiteEstimation()" cssClass="e-bigger" iconCss="e-edit e-icons"></button>
+      <button ejs-button (click)="openModal()" cssClass="e-bigger" iconCss="e-check-box e-icons"></button>
+      <button ejs-button (click)="calculateQuote()" cssClass="e-bigger" iconCss="e-page-columns e-icons"></button>
+    </div>
+  </div>
+</div>
+
+<div *ngIf="entryData" id="feuilleProduction" class="tm_container">
+  <div class="tm_invoice_wrap">
+    <div class="tm_invoice tm_style1" id="tm_download_section_production">
+      <div class="tm_invoice_in">
+        <div class="tm_invoice_head tm_align_center tm_mb20">
+          <div class="tm_invoice_left">
+            <div class="tm_logo"><img src="https://grdf.ca/wp-content/uploads/2024/09/Garage-remise-logo_horizontal_COULEUR-ET-BLANC_RVB-1024x254.png" alt="Logo"></div>
+          </div>
+          <div class="tm_invoice_right tm_text_right">
+            <div class="tm_primary_color tm_f25 tm_text_uppercase">Feuille de production</div>
+          </div>
+        </div>
+        <div class="tm_invoice_info tm_mb25">
+          <div class="tm_invoice_seperator tm_gray_bg"></div>
+          <div class="tm_invoice_info_list">
+            <p class="tm_invoice_number tm_m0">#: <b class="tm_primary_color"><strong>{{entryId}}</strong></b></p>
+          </div>
+        </div>
+        <div class="tm_invoice_head tm_mb10">
+          <div class="tm_invoice_left">
+            <p class="tm_mb2"><b class="tm_primary_color">Informations du client :</b></p>
+            <p class="tm_primary_color">
+              @if (entryData.full_name) {
+                <strong >Nom : </strong>{{entryData.full_name }} <br>
+              }
+              @if (entryData.address_1) {
+                <strong>Adresse : </strong>{{entryData.address_1?.address_line_1 }}, {{entryData.address_1?.city }}, {{entryData.address_1?.zip }}<br>
+              }
+              @if (entryData.phone) {
+                <strong>Tél : </strong>{{entryData.phone }} <br>
+              }
+              @if (entryData.email) {
+                <strong>Courriel : </strong> {{entryData.email }} <br>
+              }
+            </p>
+          </div>
+        </div>
+        <h2 class="tm_f16 tm_section_heading tm_border_color tm_mb15"><span class="tm_gray_bg">Informations</span></h2>
+        <div class="grid-container tm_mb30">
+          <div>
+            <strong><h4>Dimensions</h4></strong><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Type de bâtiment : </strong> </span>{{quoteResults.type_batiment | titlecase}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Façade : </strong> </span>{{entryData.largeur_en_pieds}}' </b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Profondeur : </strong></span>{{entryData.longeur_en_pieds}}'</b>
+          </div>
+          <div>
+            <strong><h4>Plancher</h4></strong><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Type de plancher : </strong></span>{{entryData.type_de_plancher}}</b><br>
+            @if (entryData.type_de_plancher == 'Béton' || entryData.type_de_plancher == "Béton fibre") {
+              <b class="tm_primary_color tm_medium"><span><strong>Muret de 6 pouces : </strong></span>{{entryData.muret_de_6_pouces}}</b><br>
+              <b class="tm_medium"><span><strong class="tm_accent_color">Mètre de beton : </strong></span>{{quoteResults?.plancher.metreBeton}}<br></b>
+            }
+            @if (entryData.type_de_plancher == 'Bois') {
+              <b class="tm_primary_color tm_medium"><span><strong>Structure plancher : </strong></span>{{entryData.structure_du_plancher}}</b><br>
+            }
+            <br>
+            <b class="tm_primary_color tm_medium"><span><strong>Isolation plancher : </strong></span>{{entryData.isolation_plancher}}</b><br>
+            @if (entryData.isolation_plancher == 'Oui') {
+              <b class="tm_primary_color tm_medium"><span><strong>Épaisseur isolation : </strong></span>{{entryData.epaisseur_isolation_plancher}}</b><br>
+              <b class="tm_medium"><span><strong class="tm_accent_color">Nombre isolation : </strong></span>{{quoteResults.isolation_plancher.nombre_feuilles}}<br></b>
+            }
+
+          </div>
+          <div>
+            <strong><h4>Murs</h4></strong><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Hauteur murs : </strong></span>{{entryData.hauteur_mur}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Matériel murs : </strong></span>{{entryData.materiel_murs}}</b><br>
+            <b class="tm_medium "><span><strong class="tm_accent_color">Nombre matériaux : </strong></span>{{quoteResults?.murs.nombre_materiaux}}<br></b>
+            <b class="tm_medium "><span><strong class="tm_accent_color">Nombre Rip 7/16 : </strong></span>{{quoteResults?.murs.nombre_rip_716}}<br></b>
+            <br class="">
+            <b class="tm_primary_color tm_medium"><span><strong>Revêtement extérieur : </strong></span>{{entryData.revetement_exterieur}}</b><br>
+            @if (entryData.revetement_exterieur == 'Oui') {
+              <b class="tm_primary_color tm_medium"><span><strong>Type revêtement extérieur : </strong></span>{{entryData.type_finition_exterieure}}</b><br>
+              @if (entryData.couleur_finition_exterieure == 'Autre') {
+                <b class="tm_primary_color tm_medium"><span><strong>Couleur revêtement extérieur : </strong></span>{{entryData.couleur_finition_exterieure_autre}}</b><br>
+              } @else {
+                <b class="tm_primary_color tm_medium"><span><strong>Couleur revêtement extérieur : </strong></span>{{entryData.couleur_finition_exterieure}}</b><br>
+              }
+              <b class="tm_medium "><span><strong class="tm_accent_color">Nombre revêtements: </strong></span>{{quoteResults?.murs.nombre_revetement}}<br></b>
+              @if (entryData.type_finition_exterieure == 'Métal') {
+                <b class="tm_medium "><span><strong class="tm_accent_color">Longueur tôle: </strong></span>{{quoteResults?.murs.longeur_tole}}<br></b>
+              }
+            }
+            <br class="">
+            <b class="tm_primary_color tm_medium"><span><strong>Installation lattes : </strong></span>{{entryData.lattes_revetement}}</b><br>
+            @if(entryData.lattes_revetement == 'Oui') {
+              <b class="tm_medium "><span><strong class="tm_accent_color">Nombre lattes : </strong></span>{{quoteResults?.murs.nombre_lattes}}<br></b>
+            }
+            <br class="">
+            <b class="tm_primary_color tm_medium"><span><strong>Installation Tyvek : </strong></span>{{entryData.installation_tyvek}}</b><br>
+            @if(entryData.installation_tyvek == 'Oui') {
+              <b class="tm_medium "><span><strong class="tm_accent_color">Nombre Tyvek: </strong></span>{{quoteResults?.murs.nombre_tyvek}}<br></b>
+            }
+          </div>
+          <div style="margin-bottom: 50px;">
+            <strong><h4>Toiture</h4></strong><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Ferme de toit : </strong></span>{{entryData.ferme_de_toit}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Pente de toit : </strong></span>{{entryData.pente_de_toit}}</b><br>
+            <b class="tm_primary_color tm_medium"><span><strong>Nombre de versant : </strong></span>{{entryData.nombre_de_versant}}</b><br>
+            <br class="">
+            <b class="tm_medium "><span><strong class="tm_accent_color">Longueur trust: </strong></span>{{quoteResults?.toiture.longeur_thrust}}<br></b>
+            <b class="tm_medium "><span><strong class="tm_accent_color">Nombre de trust: </strong></span>{{quoteResults?.toiture.nombre_thrust}}<br></b>
+            <br class="">
+            <b class="tm_medium "><span><strong class="tm_accent_color">Nombre rip 5/8: </strong></span>{{quoteResults?.toiture.nombre_rip_58}}<br></b>
+            <br class="">
+            <b class="tm_primary_color tm_medium"><span><strong>Type de revêtement : </strong></span>{{entryData.type_revetement_toiture}}</b><br>
+            @if (entryData.type_revetement_toiture != 'Aucun') {
+              <b class="tm_primary_color tm_medium"><span><strong>Couleur toiture : </strong></span>{{entryData.couleur_toiture}}</b><br>
+              @if (entryData.type_revetement_toiture == 'Métal') {
+                <b class="tm_medium "><span><strong class="tm_accent_color">Longueur tole: </strong></span>{{quoteResults?.toiture.longeur_tole}}<br></b>
+                <b class="tm_medium "><span><strong class="tm_accent_color">Nombre tole: </strong></span>{{quoteResults?.toiture.nombre_tole}}<br></b>
+              } @else {
+                <b class="tm_medium "><span><strong class="tm_accent_color">Nombre paquet bardeau: </strong></span>{{quoteResults?.toiture.nombre_paquet_bardeau}}<br></b>
+              }
+            }
+
+          </div>
+          <div>
+            <strong><h4>Portes garage</h4></strong><br>
+            @if (entryData.porte_garage == 'Non') {
+              <b class="tm_primary_color tm_medium"><span><strong>Aucune porte</strong></span></b><br>
+            } @else {
+              <b class="tm_primary_color tm_medium"><span><strong>Nombre porte garage : </strong></span>{{entryData.nombre_porte_garage}}</b><br>
+              @if (Number(entryData.nombre_porte_garage) > 0) {
+                <b class="tm_primary_color tm_medium"><span><strong>Dimension porte garage #1: </strong></span>{{entryData.dimension_porte_garage_1}}</b><br>
+              }
+              @if (Number(entryData.nombre_porte_garage) > 1) {
+                <b class="tm_primary_color tm_medium"><span><strong>Dimension porte garage #2: </strong></span>{{entryData.dimension_porte_garage_2}}</b><br>
+              }
+              @if (Number(entryData.nombre_porte_garage) > 2) {
+                <b class="tm_primary_color tm_medium"><span><strong>Dimension porte garage #3: </strong></span>{{entryData.dimension_porte_garage_3}}</b><br>
+              }
+              @if (Number(entryData.nombre_porte_garage) > 3) {
+                <b class="tm_primary_color tm_medium"><span><strong>Dimension porte garage #4: </strong></span>{{entryData.dimension_porte_garage_4}}</b><br>
+              }
+              <b class="tm_primary_color tm_medium"><span><strong>Couleur porte garage : </strong></span>{{entryData.couleur_porte_garage}}</b><br>
+              @if (entryData.couleur_porte_garage == 'Autre') {
+                <b class="tm_primary_color tm_medium"><span><strong>>Couleur porte garage : </strong></span>{{entryData.couleur_portre_garage_autre}}</b><br>
+              }
+              <b class="tm_primary_color tm_medium"><span><strong>Moteur porte garage : </strong></span>{{entryData.porte_garage_motorise}}</b><br>
+              @if (entryData.porte_garage_motorise == 'Oui') {
+                <b class="tm_primary_color tm_medium"><span><strong>Type de moteur : </strong></span>{{entryData.type_de_moteur}}</b><br>
+              }
+              <b class="tm_primary_color tm_medium"><span><strong>Fenêtres porte garage : </strong></span>{{entryData.porte_garage_avec_fenetre}}</b><br>
+              @if (entryData.porte_garage_avec_fenetre == 'Oui') {
+                @if (Number(entryData.nombre_porte_garage) > 0) {
+                  <b class="tm_primary_color tm_medium"><span><strong>Nombre fenêtres porte garage #1: </strong></span>{{quoteResults.portes.garage.nombre_fenetres_porte_garage_1}}</b><br>
+                }
+                @if (Number(entryData.nombre_porte_garage) > 1) {
+                  <b class="tm_primary_color tm_medium"><span><strong>Nombre fenêtres porte garage #2:</strong></span>{{quoteResults.portes.garage.nombre_fenetres_porte_garage_2}}</b><br>
+                }
+                @if (Number(entryData.nombre_porte_garage) > 2) {
+                  <b class="tm_primary_color tm_medium"><span><strong>Nombre fenêtres porte garage #3: </strong></span>{{quoteResults.portes.garage.nombre_fenetres_porte_garage_3}}</b><br>
+                }
+                @if (Number(entryData.nombre_porte_garage) > 3) {
+                  <b class="tm_primary_color tm_medium"><span><strong>Nombre fenêtres porte garage #4: </strong></span>{{quoteResults.portes.garage.nombre_fenetres_porte_garage_4}}</b><br>
+                }
+              }
+            }
+          </div>
+          <div>
+            <strong><h4>Portes piéton</h4></strong><br>
+            @if (entryData.portes_pieton == 'Non') {
+              <b class="tm_primary_color tm_medium"><span><strong>Aucune porte</strong></span></b><br>
+            } @else {
+              <b class="tm_primary_color tm_medium"><span><strong>Nombre porte piéton : </strong></span>{{entryData.nombre_de_porte_pietons}}</b><br>
+              <b class="tm_primary_color tm_medium"><span><strong>Type fenêtre porte piéton : </strong></span>{{entryData.type_fenetre_porte_pieton}}</b><br>
+              <b class="tm_primary_color tm_medium"><span><strong>Couleur porte piéton : </strong></span>{{entryData.couleur_porte_pieton}}</b><br>
+              @if (entryData.couleur_porte_pieton == 'Autre') {
+                <b class="tm_primary_color tm_medium"><span><strong>>Couleur porte piéton : </strong></span>{{entryData.couleur_porte_pieton_autre}}</b><br>
+              }
+            }
+          </div>
+          <div>
+            <strong><h4>Fenêtres</h4></strong><br>
+            @if (entryData.fenetres_garage == 'Non') {
+              <b class="tm_primary_color tm_medium"><span><strong>Aucune fenêtre</strong></span></b><br>
+            } @else {
+              <b class="tm_primary_color tm_medium"><span><strong>Nombre de fenêtres : </strong></span>{{entryData.nombre_de_fenetres}}</b><br>
+              <b class="tm_primary_color tm_medium"><span><strong>Dimension des fenêtres : </strong></span>{{entryData.dimensions_fenetres}}</b><br>
+              <b class="tm_primary_color tm_medium"><span><strong>Type de fenêtres : </strong></span>{{entryData.type_de_fenetres}}</b><br>
+              <b class="tm_primary_color tm_medium"><span><strong>Couleur des fenêtres : </strong></span>{{entryData.couleur_fenetres}}</b><br>
+              @if (entryData.couleur_fenetres == 'Autre') {
+                <b class="tm_primary_color tm_medium"><span><strong>>Couleur des fenêtres : </strong></span>{{entryData.couleur_fenetres_autre}}</b><br>
+              }
+            }
+          </div>
+          <div style="width: 67%">
+            <strong><h4>Autre</h4></strong><br>
+            @if (entryData.autres_ajouts && entryData.autres_ajouts.length) {
+              <b class="tm_primary_color tm_medium"><span><strong>Ajouts : </strong></span>{{entryData.autres_ajouts.join(',')}}</b><br>
+            }
+            <b class="tm_primary_color tm_medium"><span><strong>Commentaires : </strong></span>{{entryData.commentaires}}</b><br>
+          </div>
+          <div></div>
+        </div>
+        <h2 class="tm_f12 tm_section_heading tm_border_color tm_mb15"><span class="tm_gray_bg">Dessiner les emplacements des portes et fenêtres</span></h2>
+        <div class="dessin-container">
+          @if (Number(entryData.nombre_de_versant) == 1 || Number(entryData.nombre_de_versant) > 2) {
+            <img src="/assets/2A.png" alt="">
+            <img src="/assets/2B.png" alt="">
+          } @else {
+            <img src="/assets/1A.png" alt="">
+            <img src="/assets/1B.png" alt="">
+          }
+        </div>
+        <h2 class="tm_f12 tm_section_heading tm_border_color tm_mb15"><span class="tm_gray_bg">Options</span></h2>
+        <div class="tm_width_6 tm_mb30" [innerHTML]="adjustmentOptions"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<ejs-dialog (overlayClick)="closeModal()" #editorDialog [(visible)]="showModal" [header]="'Ajustements'" [width]="'50%'" [closeOnEscape]="true" [isModal]="true" [showCloseIcon]="true">
+  <ng-template #content>
+    <div class="modal-content">
+      <label>Options : </label>
+      <ejs-richtexteditor style="margin-top: 5px; margin-bottom: 15px" [(ngModel)]="adjustmentOptions"></ejs-richtexteditor>
+      <label >Prix final :</label>
+      <input style="margin-top: 5px" type="text" [(ngModel)]="finalPrice" class="e-input" />
+      <div class="print-options-container">
+        <ejs-checkbox label="Imprimer avec prix" [(ngModel)]="showPriceOnPrint"></ejs-checkbox>
+      </div>
+      <div class="print-buttons-container"  style="margin-top: 35px;">
+        <button ejs-button cssClass="e-primary e-outline" (click)="printDiv('printMe')" content="IMPRIMER ESTIMATION"></button>
+        <button style="margin-left: 15px;" ejs-button cssClass="e-primary e-outline" (click)="printDiv('feuilleProduction')" content="IMPRIMER FEUILLE PRODUCTION"></button>
+      </div>
+    </div>
+  </ng-template>
+
+  <ng-template #footer>
+    <button ejs-button (click)="closeModal()">Close</button>
+  </ng-template>
+</ejs-dialog>
+

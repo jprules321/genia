@@ -1,0 +1,50 @@
+<div class="control-section" id="reswrapper">
+  <!-- sample level element  -->
+  <!-- header-section  declaration -->
+  <!-- header-section with integrated window controls -->
+  <div class="custom-titlebar">
+    <ejs-toolbar id="resToolbar" (clicked)="toolbarClickHandler($event)">
+      <e-items>
+        <e-item prefixIcon="e-justify" tooltipText="Menu"></e-item>
+        <e-item>
+          <ng-template #template>
+            <div class="e-folder">
+              <div class="e-folder-name">Menu</div>
+            </div>
+          </ng-template>
+        </e-item>
+        <!-- Spacer to push window controls to the right -->
+        <e-item cssClass="toolbar-spacer"></e-item>
+        <!-- Window control buttons -->
+        <e-item id="minimize" class="e-icons e-small" prefixIcon="e-intermediate-state-2" tooltipText="Minimize"></e-item>
+        <e-item id="maximize" class="e-icons e-small" [prefixIcon]="isMaximized ? 'e-frame-4' : 'e-frame-1'" tooltipText="Maximize"></e-item>
+        <e-item id="close" class="e-icons e-small" prefixIcon="e-close" tooltipText="Close" cssClass="close-button"></e-item>
+      </e-items>
+    </ejs-toolbar>
+  </div>
+
+
+  <!-- end of header-section -->
+  <ejs-sidebar id="sideTree" class="sidebar-treeview" #sidebarTreeviewInstance [width]="width" [target]="target"
+               [mediaQuery]="mediaQuery" [isOpen]="true">
+    <div class='main-menu'>
+      <div class="table-content">
+        <div class="menu-logo">
+          <img src="/assets/icons/png/logo_genia.png" alt="Logo GRDF">
+          <h3>Genia</h3>
+        </div>
+      </div>
+      <div>
+        <ejs-treeview [selectedNodes]="selectedNodes" #treeView id='mainTree' cssClass="main-treeview" [fields]="fields" (nodeSelected)="onNodeSelected($event)" expandOn='Click'>
+        </ejs-treeview>
+      </div>
+    </div>
+  </ejs-sidebar>
+  <!-- end of sidebar element -->
+  <!-- .main-sidebar-content declaration -->
+  <div class="main-sidebar-content" id="main-text">
+    <div class="sidebar-content">
+      <router-outlet></router-outlet>
+    </div>
+  </div>
+</div>
