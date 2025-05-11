@@ -1,4 +1,14 @@
 import { Injectable } from '@angular/core';
+import { Observable, Subject } from 'rxjs';
+
+// Define interface for indexation progress updates
+export interface IndexationProgressUpdate {
+  folderId: string;
+  folderPath: string;
+  indexedFiles: number;
+  totalFiles: number;
+  progress: number;
+}
 
 // Update Window interface to include your electronAPI methods
 declare global {
@@ -18,9 +28,13 @@ declare global {
       stopFolderIndexation: (folderPath: string) => Promise<any>;
       checkFolderIndexable: (folderPath: string) => Promise<any>;
       removeFileFromIndex: (filePath: string, folderId: string) => Promise<any>;
+      removeFolderFromIndex: (folderPath: string) => Promise<any>;
       // Indexation error log methods
       getIndexationErrorLog: (folderPath?: string) => Promise<any>;
       clearIndexationErrorLog: (folderPath?: string) => Promise<any>;
+      // Event listeners
+      on: (channel: string, callback: (...args: any[]) => void) => () => void;
+      onIndexationProgress: (callback: (update: IndexationProgressUpdate) => void) => () => void;
     }
   }
 }
@@ -30,9 +44,26 @@ declare global {
 })
 export class ElectronWindowService {
   private isElectron: boolean;
+  private indexationProgressSubject = new Subject<IndexationProgressUpdate>();
+  public indexationProgress$ = this.indexationProgressSubject.asObservable();
+  private progressCleanupFn: (() => void) | null = null;
 
   constructor() {
     this.isElectron = !!(window && window.electronAPI);
+
+    // Subscribe to indexation progress updates
+    if (this.isElectron) {
+      this.progressCleanupFn = window.electronAPI.onIndexationProgress((update) => {
+        this.indexationProgressSubject.next(update);
+      });
+    }
+  }
+
+  ngOnDestroy() {
+    // Clean up event listeners
+    if (this.progressCleanupFn) {
+      this.progressCleanupFn();
+    }
   }
 
   minimizeWindow(): void {
@@ -145,6 +176,17 @@ export class ElectronWindowService {
   async removeFileFromIndex(filePath: string, folderId: string): Promise<any> {
     if (this.isElectron) {
       return await window.electronAPI.removeFileFromIndex(filePath, folderId);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Remove a folder from the index
+   * @param folderPath Path of the folder to remove from the index
+   */
+  async removeFolderFromIndex(folderPath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.removeFolderFromIndex(folderPath);
     }
     return { success: false, error: 'Not running in Electron' };
   }

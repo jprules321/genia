@@ -222,6 +222,42 @@ export class FoldersComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Stop the current indexation process
+   */
+  stopIndexation(): void {
+    if (!this.isIndexing || !this.indexingStatus.currentFolder) {
+      return;
+    }
+
+    // Find the folder object that matches the current folder name
+    const currentFolder = this.folders.find(folder => folder.name === this.indexingStatus.currentFolder);
+
+    if (!currentFolder) {
+      console.error(`Could not find folder with name ${this.indexingStatus.currentFolder}`);
+      return;
+    }
+
+    console.log(`Stopping indexation for folder: ${currentFolder.name} (${currentFolder.path})`);
+
+    // Call the indexing service to stop indexation
+    this.indexingService.stopFolderIndexation(currentFolder.path).subscribe(
+      success => {
+        if (success) {
+          console.log(`Indexation stopped for folder ${currentFolder.name}`);
+          // Reset the global indexation status
+          this.indexingService.resetIndexingStatus();
+          this.isIndexing = false;
+        } else {
+          console.error(`Failed to stop indexation for folder ${currentFolder.name}`);
+        }
+      },
+      error => {
+        console.error(`Error stopping indexation for folder ${currentFolder.name}:`, error);
+      }
+    );
+  }
+
+  /**
    * Update the indexing progress for each folder
    */
   private updateFolderIndexingProgress(): void {
@@ -329,6 +365,12 @@ export class FoldersComponent implements OnInit, OnDestroy {
 
   // Open add folder dialog
   openAddFolderDialog(): void {
+    // Check if indexation is in progress
+    if (this.isIndexing) {
+      alert('Cannot add a folder while indexation is in progress. Please wait for indexation to complete.');
+      return;
+    }
+
     // Reset the new folder object
     this.newFolder = { id: '', path: '', name: '', createdAt: new Date() };
     this.addDialogVisible = true;
@@ -543,6 +585,24 @@ export class FoldersComponent implements OnInit, OnDestroy {
 
           // Remove folder indexing stats
           this.indexingService.removeFolderIndexingStats(folderToDelete.id);
+
+          // Remove folder from index (clears indexed files and stops watching)
+          this.indexingService.removeFolderFromIndex(folderToDelete).subscribe(
+            result => {
+              console.log(`Folder ${folderToDelete.name} removed from index: ${result}`);
+            },
+            error => {
+              console.error(`Error removing folder ${folderToDelete.name} from index:`, error);
+            }
+          );
+
+          // Check if this was the folder being indexed and reset global indexation status if needed
+          const indexingStatus = this.indexingService.getIndexingStatus();
+          if (indexingStatus.inProgress && indexingStatus.currentFolder === folderToDelete.name) {
+            // Reset the global indexation status
+            this.indexingService.resetIndexingStatus();
+            this.isIndexing = false;
+          }
 
           // Restart folder watching to update the watched paths
           this.startWatchingFolders();

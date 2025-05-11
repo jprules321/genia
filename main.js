@@ -286,7 +286,7 @@ if (!gotTheLock) {
         return null;
       }
 
-      console.log(`Indexing file: ${filePath}`);
+      // console.log(`Indexing file: ${filePath}`);
 
       // Read file content
       const content = await readFile(filePath);
@@ -341,14 +341,46 @@ if (!gotTheLock) {
     }
   }
 
+  // Helper function to recursively count files in a directory and all its subdirectories
+  async function countFiles(dirPath) {
+    try {
+      let count = 0;
+      const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+          try {
+            // Recursively count files in subdirectory
+            const subCount = await countFiles(fullPath);
+            count += subCount;
+          } catch (error) {
+            console.error(`Error counting files in subdirectory ${fullPath}:`, error);
+            // Continue with other entries despite this error
+          }
+        } else if (entry.isFile()) {
+          // Only count files that should be indexed
+          if (shouldIndexFile(fullPath)) {
+            count++;
+          }
+        }
+      }
+
+      return count;
+    } catch (error) {
+      console.error(`Error counting files in directory ${dirPath}:`, error);
+      return 0;
+    }
+  }
+
   // Helper function to recursively index a directory and all its subdirectories (deep indexing)
-  async function indexDirectory(dirPath, folderId, rootFolderPath) {
+  async function indexDirectory(dirPath, folderId, rootFolderPath, totalFiles, indexedFiles = 0, mainWindow = null) {
     try {
       // Check if the root folder is still being indexed before starting
       const rootPath = rootFolderPath || dirPath;
       if (!foldersBeingIndexed.some(f => f.folderPath === rootPath)) {
         console.log(`Stopping indexation for ${dirPath} because root folder ${rootPath} is no longer being indexed`);
-        return [];
+        return { results: [], indexedFiles };
       }
 
       const results = [];
@@ -361,7 +393,7 @@ if (!gotTheLock) {
         // Check again if the root folder is still being indexed before processing each entry
         if (!foldersBeingIndexed.some(f => f.folderPath === rootPath)) {
           console.log(`Stopping indexation for ${dirPath} because root folder ${rootPath} is no longer being indexed`);
-          return results; // Return any results collected so far
+          return { results, indexedFiles }; // Return any results collected so far
         }
 
         const fullPath = path.join(dirPath, entry.name);
@@ -369,8 +401,9 @@ if (!gotTheLock) {
         if (entry.isDirectory()) {
           try {
             // Recursively index subdirectory (this enables deep indexing of nested folders)
-            const subResults = await indexDirectory(fullPath, folderId, rootPath);
-            results.push(...subResults);
+            const subResult = await indexDirectory(fullPath, folderId, rootPath, totalFiles, indexedFiles, mainWindow);
+            results.push(...subResult.results);
+            indexedFiles = subResult.indexedFiles;
           } catch (error) {
             console.error(`Error indexing subdirectory ${fullPath}:`, error);
             logIndexationError(folderPathForLogging, fullPath, error);
@@ -381,15 +414,28 @@ if (!gotTheLock) {
           const result = await indexFile(fullPath, folderId, folderPathForLogging);
           if (result) {
             results.push(result);
+            indexedFiles++;
+
+            // Send progress update to renderer process
+            if (mainWindow && totalFiles > 0) {
+              const progress = Math.round((indexedFiles / totalFiles) * 100);
+              mainWindow.webContents.send('indexation-progress', {
+                folderId,
+                folderPath: rootPath,
+                indexedFiles,
+                totalFiles,
+                progress
+              });
+            }
           }
         }
       }
 
-      return results;
+      return { results, indexedFiles };
     } catch (error) {
       console.error(`Error indexing directory ${dirPath}:`, error);
       logIndexationError(rootFolderPath || dirPath, dirPath, error);
-      return [];
+      return { results: [], indexedFiles };
     }
   }
 
@@ -407,19 +453,50 @@ if (!gotTheLock) {
       // Generate a folder ID (in a real app, this would come from your database)
       const folderId = Date.now().toString();
 
+      // Count total files before starting indexation
+      console.log(`Counting files in folder: ${folderPath}`);
+      const totalFiles = await countFiles(folderPath);
+      console.log(`Found ${totalFiles} files in folder: ${folderPath}`);
+
+      // Get the BrowserWindow that sent the request
+      const mainWindow = BrowserWindow.fromWebContents(event.sender);
+
+      // Send initial progress update
+      if (mainWindow) {
+        mainWindow.webContents.send('indexation-progress', {
+          folderId,
+          folderPath,
+          indexedFiles: 0,
+          totalFiles,
+          progress: 0
+        });
+      }
+
       // Add to folders being indexed
       foldersBeingIndexed.push({ folderPath, folderId });
 
       try {
-        // Index the directory
-        const results = await indexDirectory(folderPath, folderId, folderPath);
+        // Index the directory with progress tracking
+        const { results, indexedFiles } = await indexDirectory(folderPath, folderId, folderPath, totalFiles, 0, mainWindow);
+
+        // Send final progress update
+        if (mainWindow) {
+          mainWindow.webContents.send('indexation-progress', {
+            folderId,
+            folderPath,
+            indexedFiles,
+            totalFiles,
+            progress: totalFiles > 0 ? Math.round((indexedFiles / totalFiles) * 100) : 100
+          });
+        }
 
         // Remove from folders being indexed
         foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
 
         return {
           success: true,
-          filesIndexed: results.length,
+          filesIndexed: indexedFiles,
+          totalFiles,
           results: results,
           errorsCount: indexationErrorLog.errors.filter(e => e.folderPath === folderPath).length
         };
@@ -581,6 +658,33 @@ if (!gotTheLock) {
       return { success: false, error: error.toString() };
     }
   });
+
+  // Helper function to stop watching a specific folder
+  async function stopWatchingFolder(folderPath) {
+    // Normalize the path to ensure consistent comparison
+    const normalizedPath = path.normalize(folderPath);
+
+    // Find the watcher for this folder
+    const watcherIndex = folderWatchers.findIndex(w => path.normalize(w.folderPath) === normalizedPath);
+
+    if (watcherIndex === -1) {
+      console.log(`No watcher found for folder: ${folderPath}`);
+      return false;
+    }
+
+    try {
+      // Close the watcher
+      await folderWatchers[watcherIndex].watcher.close();
+      console.log(`Stopped watching folder: ${folderPath}`);
+
+      // Remove the watcher from the array
+      folderWatchers.splice(watcherIndex, 1);
+      return true;
+    } catch (error) {
+      console.error(`Error stopping watcher for ${folderPath}:`, error);
+      return false;
+    }
+  }
 
   // Helper function to stop all watchers
   async function stopAllWatchers() {
@@ -777,6 +881,34 @@ if (!gotTheLock) {
       };
     } catch (error) {
       console.error('Error in remove-file-from-index handler:', error);
+      return { success: false, error: error.toString() };
+    }
+  });
+
+  // Handler for removing a folder from the index
+  ipcMain.handle('remove-folder-from-index', async (event, folderPath) => {
+    try {
+      console.log(`Received request to remove folder from index: ${folderPath}`);
+
+      // First check if the folder is being indexed and stop indexation if needed
+      const isBeingIndexed = foldersBeingIndexed.some(f => f.folderPath === folderPath);
+      if (isBeingIndexed) {
+        console.log(`Stopping indexation for folder: ${folderPath}`);
+        // Remove from folders being indexed
+        foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
+      }
+
+      // Stop watching the folder
+      const watchingStopped = await stopWatchingFolder(folderPath);
+
+      return {
+        success: true,
+        folderPath,
+        watchingStopped,
+        indexationStopped: isBeingIndexed
+      };
+    } catch (error) {
+      console.error('Error in remove-folder-from-index handler:', error);
       return { success: false, error: error.toString() };
     }
   });

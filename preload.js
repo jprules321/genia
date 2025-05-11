@@ -9,12 +9,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
 
   // Main -> Renderer
-  // on: (channel, func) => {
-  //   const subscription = (event, ...args) => func(...args);
-  //   ipcRenderer.on(channel, subscription);
-  //   // Return cleanup function
-  //   return () => ipcRenderer.removeListener(channel, subscription);
-  // }
+  on: (channel, func) => {
+    const subscription = (event, ...args) => func(...args);
+    ipcRenderer.on(channel, subscription);
+    // Return cleanup function
+    return () => ipcRenderer.removeListener(channel, subscription);
+  },
+
+  // Receive indexation progress updates
+  onIndexationProgress: (func) => {
+    const subscription = (event, ...args) => func(...args);
+    ipcRenderer.on('indexation-progress', subscription);
+    return () => ipcRenderer.removeListener('indexation-progress', subscription);
+  },
 
   // Window management
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
@@ -31,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopFolderIndexation: (folderPath) => ipcRenderer.invoke('stop-folder-indexation', folderPath),
   checkFolderIndexable: (folderPath) => ipcRenderer.invoke('check-folder-indexable', folderPath),
   removeFileFromIndex: (filePath, folderId) => ipcRenderer.invoke('remove-file-from-index', filePath, folderId),
+  removeFolderFromIndex: (folderPath) => ipcRenderer.invoke('remove-folder-from-index', folderPath),
 
   // Indexation error log
   getIndexationErrorLog: (folderPath) => ipcRenderer.invoke('get-indexation-error-log', folderPath),

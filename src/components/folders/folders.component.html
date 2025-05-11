@@ -1,7 +1,7 @@
 <div class="control-section folders-container">
   <div class="header">
     <h2>Folders Management</h2>
-    <button ejs-button cssClass="e-primary" (click)="openAddFolderDialog()">Add New Folder</button>
+    <button ejs-button cssClass="e-primary" (click)="openAddFolderDialog()" [disabled]="isIndexing">Add New Folder</button>
   </div>
 
   <!-- Indexing Status -->
@@ -9,6 +9,7 @@
     <div class="status-message">
       <span class="status-icon">⟳</span>
       <span>Indexing folder: {{ indexingStatus.currentFolder || 'Processing' }}</span>
+      <button ejs-button cssClass="e-danger e-small e-round" iconCss="e-icons e-close" (click)="stopIndexation()" title="Stop indexation"></button>
     </div>
     <div class="progress-bar">
       <div class="progress" [style.width.%]="indexingStatus.progress"></div>

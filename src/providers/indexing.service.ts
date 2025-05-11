@@ -1,8 +1,8 @@
-import { Injectable } from '@angular/core';
-import { Observable, from, of } from 'rxjs';
+import { Injectable, OnDestroy } from '@angular/core';
+import { Observable, from, of, Subscription } from 'rxjs';
 import { map, catchError, tap, switchMap } from 'rxjs/operators';
 import { FoldersService } from './folders.service';
-import { ElectronWindowService } from './electron-window.service';
+import { ElectronWindowService, IndexationProgressUpdate } from './electron-window.service';
 import { Folder } from '../components/folders/folders.component';
 
 // Define interfaces for our indexing system
@@ -35,7 +35,7 @@ export interface IndexationError {
 @Injectable({
   providedIn: 'root'
 })
-export class IndexingService {
+export class IndexingService implements OnDestroy {
   private readonly STORAGE_KEY = 'genia_indexed_files';
   private readonly STATUS_KEY = 'genia_indexing_status';
   private readonly FOLDER_STATS_KEY = 'genia_folder_stats';
@@ -44,6 +44,7 @@ export class IndexingService {
     progress: 0
   };
   private folderStats: Map<string, { indexedFiles: number, totalFiles: number }> = new Map();
+  private subscriptions: Subscription[] = [];
 
   constructor(
     private foldersService: FoldersService,
@@ -69,6 +70,57 @@ export class IndexingService {
         console.error('Error parsing folder stats:', error);
         this.folderStats = new Map();
       }
+    }
+
+    // Subscribe to indexation progress updates
+    this.subscriptions.push(
+      this.electronWindowService.indexationProgress$.subscribe(update => {
+        this.handleIndexationProgressUpdate(update);
+      })
+    );
+  }
+
+  ngOnDestroy() {
+    // Clean up subscriptions
+    this.subscriptions.forEach(sub => sub.unsubscribe());
+  }
+
+  /**
+   * Handle indexation progress updates from the main process
+   * @param update The progress update
+   */
+  private handleIndexationProgressUpdate(update: IndexationProgressUpdate) {
+    // console.log('Received indexation progress update:', update);
+
+    // Update the global status
+    this.status = {
+      inProgress: update.progress < 100,
+      currentFolder: update.folderPath,
+      currentFile: undefined, // We don't have this information
+      progress: update.progress
+    };
+    this.saveStatus();
+
+    // Update the folder stats
+    this.updateFolderIndexingStats(update.folderId, {
+      indexedFiles: update.indexedFiles,
+      totalFiles: update.totalFiles
+    });
+
+    // If indexation is complete (progress = 100%), make sure we persist the final state
+    if (update.progress === 100) {
+      // Give it a short delay to ensure all updates are processed
+      setTimeout(() => {
+        // Ensure the status is saved with the correct progress
+        if (this.status.progress === 100) {
+          this.status = {
+            inProgress: false,
+            progress: 100
+          };
+        }
+        this.saveStatus();
+        this.saveFolderStats();
+      }, 500);
     }
   }
 
@@ -115,16 +167,21 @@ export class IndexingService {
     };
     this.saveStatus();
 
-    // This would call the Electron main process to read and index files
-    // For now, we'll simulate this with a placeholder
+    // Call the Electron main process to read and index files
     return from(this.invokeIndexFolder(folder)).pipe(
-      tap(success => {
-        // Update status when done
-        this.status = {
-          inProgress: false,
-          progress: 100
-        };
-        this.saveStatus();
+      tap(result => {
+        console.log('Folder indexation completed:', result);
+
+        // The progress updates are now handled by the handleIndexationProgressUpdate method
+        // which is called when we receive progress updates from the main process
+
+        // Ensure the folder stats are updated with the final values
+        if (result.success) {
+          this.updateFolderIndexingStats(folder.id, {
+            indexedFiles: result.filesIndexed || 0,
+            totalFiles: result.totalFiles || result.filesIndexed || 0
+          });
+        }
       }),
       catchError(error => {
         console.error('Error indexing folder:', error);
@@ -252,6 +309,17 @@ export class IndexingService {
   }
 
   /**
+   * Reset indexing status to not in progress
+   */
+  resetIndexingStatus(): void {
+    this.status = {
+      inProgress: false,
+      progress: 0
+    };
+    this.saveStatus();
+  }
+
+  /**
    * Get indexing stats for a specific folder
    * @param folderId The ID of the folder
    * @returns Object with indexedFiles and totalFiles counts, or null if not available
@@ -287,6 +355,46 @@ export class IndexingService {
       this.folderStats.delete(folderId);
       this.saveFolderStats();
     }
+  }
+
+  /**
+   * Remove a folder from the index
+   * This removes all indexed files for the folder and stops watching the folder
+   * @param folder The folder to remove from the index
+   * @returns Observable that completes when the folder is removed from the index
+   */
+  removeFolderFromIndex(folder: Folder): Observable<boolean> {
+    console.log(`Removing folder from index: ${folder.name} (${folder.path})`);
+
+    // First remove all indexed files for this folder from localStorage
+    return this.getIndexedFiles().pipe(
+      switchMap(files => {
+        // Filter out all files associated with this folder
+        const updatedFiles = files.filter(file => file.folderId !== folder.id);
+
+        // If we removed any files, save the updated array
+        if (updatedFiles.length !== files.length) {
+          localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedFiles));
+          console.log(`Removed ${files.length - updatedFiles.length} files from index for folder: ${folder.name}`);
+        }
+
+        // Now call the Electron main process to remove the folder from the watchers
+        return from(this.electronWindowService.removeFolderFromIndex(folder.path));
+      }),
+      switchMap(result => {
+        if (result.success) {
+          console.log(`Successfully removed folder from index: ${folder.name}`);
+          return of(true);
+        } else {
+          console.error(`Error removing folder from index: ${folder.name}`, result.error);
+          return of(false);
+        }
+      }),
+      catchError(error => {
+        console.error(`Error removing folder from index: ${folder.name}`, error);
+        return of(false);
+      })
+    );
   }
 
   /**
@@ -378,28 +486,27 @@ export class IndexingService {
   /**
    * Call Electron IPC to index a folder
    */
-  private async invokeIndexFolder(folder: Folder): Promise<boolean> {
+  private async invokeIndexFolder(folder: Folder): Promise<any> {
     try {
       console.log(`Indexing folder: ${folder.name} (${folder.path})`);
       const result = await this.electronWindowService.indexFolder(folder.path);
 
       if (result.success) {
-        // Update folder stats with the number of files indexed
-        this.updateFolderIndexingStats(folder.id, {
-          indexedFiles: result.filesIndexed || 0,
-          totalFiles: result.filesIndexed || 0 // For now, we assume all files are indexed
-        });
+        // The folder stats are now updated by the handleIndexationProgressUpdate method
+        // which is called when we receive progress updates from the main process
 
         // Update the folder object with indexing progress
         folder.indexedFiles = result.filesIndexed || 0;
-        folder.totalFiles = result.filesIndexed || 0;
-        folder.indexingProgress = 100; // 100% if all files are indexed
+        folder.totalFiles = result.totalFiles || result.filesIndexed || 0;
+        folder.indexingProgress = result.totalFiles > 0
+          ? Math.round((result.filesIndexed / result.totalFiles) * 100)
+          : 100;
       }
 
-      return result.success;
+      return result;
     } catch (error) {
       console.error('Error in invokeIndexFolder:', error);
-      return false;
+      return { success: false, error: error.toString() };
     }
   }
 
