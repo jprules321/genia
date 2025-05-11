@@ -27,7 +27,7 @@
     <ejs-grid #grid [dataSource]="folders" *ngIf="folders.length > 0" [allowPaging]="true" [pageSettings]="{ pageSize: 10 }">
       <e-columns>
         <e-column field="name" headerText="Name" width="120"></e-column>
-        <e-column field="path" headerText="Path" width="200"></e-column>
+        <e-column field="path" headerText="Path" width="180"></e-column>
         <e-column field="createdAt" headerText="Created" width="100" type="date" format="yMd"></e-column>
         <e-column headerText="Indexed" width="120" textAlign="Center">
           <ng-template #template let-data>
@@ -39,6 +39,14 @@
             </div>
           </ng-template>
         </e-column>
+        <e-column headerText="Status" width="110" textAlign="Center">
+          <ng-template #template let-data>
+            <span *ngIf="data.status === 'indexed'" class="status-badge status-indexed">Indexed</span>
+            <span *ngIf="data.status === 'indexing'" class="status-badge status-indexing">Indexing</span>
+            <span *ngIf="data.status === 'stopped'" class="status-badge status-stopped">Stopped</span>
+            <span *ngIf="!data.status" class="status-badge">-</span>
+          </ng-template>
+        </e-column>
         <e-column headerText="Errors" width="80" textAlign="Center">
           <ng-template #template let-data>
             <div *ngIf="data.hasErrors" class="error-indicator">
@@ -48,10 +56,11 @@
             <span *ngIf="!data.hasErrors">No errors</span>
           </ng-template>
         </e-column>
-        <e-column headerText="Actions" width="120" textAlign="Center">
+        <e-column headerText="Actions" width="250" textAlign="Center">
           <ng-template #template let-data>
             <button ejs-button cssClass="e-info e-small" (click)="updateFolder(data)">Edit</button>
             <button ejs-button cssClass="e-danger e-small" (click)="deleteFolder(data.id)">Delete</button>
+            <button ejs-button cssClass="e-success e-small" (click)="openDirectory(data.path)">Open Directory</button>
           </ng-template>
         </e-column>
       </e-columns>

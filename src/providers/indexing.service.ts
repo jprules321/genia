@@ -43,7 +43,12 @@ export class IndexingService implements OnDestroy {
     inProgress: false,
     progress: 0
   };
-  private folderStats: Map<string, { indexedFiles: number, totalFiles: number }> = new Map();
+  private folderStats: Map<string, {
+    indexedFiles: number,
+    totalFiles: number,
+    progress?: number,
+    status?: 'indexing' | 'indexed' | 'stopped'
+  }> = new Map();
   private subscriptions: Subscription[] = [];
 
   constructor(
@@ -92,19 +97,31 @@ export class IndexingService implements OnDestroy {
   private handleIndexationProgressUpdate(update: IndexationProgressUpdate) {
     // console.log('Received indexation progress update:', update);
 
+    // Determine status based on progress and status field
+    let inProgress = update.progress < 100;
+    let progress = update.progress;
+
+    // Handle stopped status (progress = -1)
+    if (update.status === 'stopped') {
+      inProgress = false;
+      // Keep the progress value as -1 to indicate stopped
+    }
+
     // Update the global status
     this.status = {
-      inProgress: update.progress < 100,
+      inProgress: inProgress,
       currentFolder: update.folderPath,
       currentFile: undefined, // We don't have this information
-      progress: update.progress
+      progress: progress
     };
     this.saveStatus();
 
-    // Update the folder stats
+    // Update the folder stats with progress and status
     this.updateFolderIndexingStats(update.folderId, {
       indexedFiles: update.indexedFiles,
-      totalFiles: update.totalFiles
+      totalFiles: update.totalFiles,
+      progress: progress,
+      status: update.status
     });
 
     // If indexation is complete (progress = 100%), make sure we persist the final state
@@ -322,9 +339,14 @@ export class IndexingService implements OnDestroy {
   /**
    * Get indexing stats for a specific folder
    * @param folderId The ID of the folder
-   * @returns Object with indexedFiles and totalFiles counts, or null if not available
+   * @returns Object with indexedFiles, totalFiles, progress, and status, or null if not available
    */
-  getFolderIndexingStats(folderId: string): { indexedFiles: number, totalFiles: number } | null {
+  getFolderIndexingStats(folderId: string): {
+    indexedFiles: number,
+    totalFiles: number,
+    progress?: number,
+    status?: 'indexing' | 'indexed' | 'stopped'
+  } | null {
     return this.folderStats.get(folderId) || null;
   }
 
@@ -332,16 +354,26 @@ export class IndexingService implements OnDestroy {
    * Get indexing stats for all folders
    * @returns Map of folder IDs to indexing stats
    */
-  getAllFolderIndexingStats(): Map<string, { indexedFiles: number, totalFiles: number }> {
+  getAllFolderIndexingStats(): Map<string, {
+    indexedFiles: number,
+    totalFiles: number,
+    progress?: number,
+    status?: 'indexing' | 'indexed' | 'stopped'
+  }> {
     return new Map(this.folderStats);
   }
 
   /**
    * Update indexing stats for a folder
    * @param folderId The ID of the folder
-   * @param stats Object with indexedFiles and totalFiles counts
+   * @param stats Object with indexedFiles, totalFiles, progress, and status
    */
-  updateFolderIndexingStats(folderId: string, stats: { indexedFiles: number, totalFiles: number }): void {
+  updateFolderIndexingStats(folderId: string, stats: {
+    indexedFiles: number,
+    totalFiles: number,
+    progress?: number,
+    status?: 'indexing' | 'indexed' | 'stopped'
+  }): void {
     this.folderStats.set(folderId, stats);
     this.saveFolderStats();
   }

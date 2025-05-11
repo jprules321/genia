@@ -490,7 +490,8 @@ if (!gotTheLock) {
                 folderPath: rootPath,
                 indexedFiles,
                 totalFiles,
-                progress
+                progress,
+                status: 'indexing'
               });
             }
           }
@@ -552,7 +553,8 @@ if (!gotTheLock) {
             folderPath,
             indexedFiles,
             totalFiles,
-            progress: totalFiles > 0 ? Math.round((indexedFiles / totalFiles) * 100) : 100
+            progress: totalFiles > 0 ? Math.round((indexedFiles / totalFiles) * 100) : 100,
+            status: 'indexed'
           });
         }
 
@@ -867,12 +869,32 @@ if (!gotTheLock) {
       console.log(`Request to stop indexation for folder: ${folderPath}`);
 
       // Check if the folder is being indexed
-      const isBeingIndexed = foldersBeingIndexed.some(f => f.folderPath === folderPath);
+      const folderBeingIndexed = foldersBeingIndexed.find(f => f.folderPath === folderPath);
+      const isBeingIndexed = !!folderBeingIndexed;
 
       if (isBeingIndexed) {
         console.log(`Stopping indexation for folder: ${folderPath}`);
+
+        // Get the BrowserWindow that sent the request
+        const mainWindow = BrowserWindow.fromWebContents(event.sender);
+
+        // Send a progress update with status "stopped"
+        if (mainWindow) {
+          // Get the current progress before stopping
+          const folderId = folderBeingIndexed.folderId;
+          mainWindow.webContents.send('indexation-progress', {
+            folderId,
+            folderPath,
+            indexedFiles: 0, // We don't know how many files were indexed
+            totalFiles: 0,   // We don't know the total files
+            progress: -1,    // Use -1 to indicate stopped status
+            status: 'stopped'
+          });
+        }
+
         // Remove from folders being indexed
         foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
+
         return {
           success: true,
           message: `Indexation stopped for folder: ${folderPath}`
@@ -1008,6 +1030,34 @@ if (!gotTheLock) {
       };
     } catch (error) {
       console.error('Error in remove-folder-from-index handler:', error);
+      return { success: false, error: error.toString() };
+    }
+  });
+
+  // Handler for opening a directory in the file explorer
+  ipcMain.handle('open-directory', async (event, directoryPath) => {
+    try {
+      console.log(`Opening directory in file explorer: ${directoryPath}`);
+
+      // Check if directory exists
+      const stats = await fsPromises.stat(directoryPath);
+      if (!stats.isDirectory()) {
+        return {
+          success: false,
+          error: 'Not a directory'
+        };
+      }
+
+      // Open directory in file explorer
+      const { shell } = require('electron');
+      await shell.openPath(directoryPath);
+
+      return {
+        success: true,
+        message: `Directory opened: ${directoryPath}`
+      };
+    } catch (error) {
+      console.error('Error opening directory:', error);
       return { success: false, error: error.toString() };
     }
   });

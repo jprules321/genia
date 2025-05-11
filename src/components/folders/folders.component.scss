@@ -167,6 +167,35 @@
         min-width: 30px;
       }
     }
+
+    // Status badge styles
+    .status-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      text-align: center;
+      min-width: 70px;
+
+      &.status-indexed {
+        background-color: #e6f7e6;
+        color: #2e7d32;
+        border: 1px solid #c8e6c9;
+      }
+
+      &.status-indexing {
+        background-color: #e3f2fd;
+        color: #1976d2;
+        border: 1px solid #bbdefb;
+      }
+
+      &.status-stopped {
+        background-color: #ffebee;
+        color: #c62828;
+        border: 1px solid #ffcdd2;
+      }
+    }
   }
 }
 

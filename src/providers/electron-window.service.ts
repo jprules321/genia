@@ -8,6 +8,7 @@ export interface IndexationProgressUpdate {
   indexedFiles: number;
   totalFiles: number;
   progress: number;
+  status?: 'indexing' | 'indexed' | 'stopped';
 }
 
 // Update Window interface to include your electronAPI methods
@@ -32,6 +33,8 @@ declare global {
       // Indexation error log methods
       getIndexationErrorLog: (folderPath?: string) => Promise<any>;
       clearIndexationErrorLog: (folderPath?: string) => Promise<any>;
+      // Directory operations
+      openDirectory: (directoryPath: string) => Promise<any>;
       // Event listeners
       on: (channel: string, callback: (...args: any[]) => void) => () => void;
       onIndexationProgress: (callback: (update: IndexationProgressUpdate) => void) => () => void;
@@ -209,6 +212,17 @@ export class ElectronWindowService {
   async clearIndexationErrorLog(folderPath?: string): Promise<any> {
     if (this.isElectron) {
       return await window.electronAPI.clearIndexationErrorLog(folderPath);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Open a directory in the file explorer
+   * @param directoryPath Path of the directory to open
+   */
+  async openDirectory(directoryPath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.openDirectory(directoryPath);
     }
     return { success: false, error: 'Not running in Electron' };
   }

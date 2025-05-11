@@ -222,6 +222,24 @@ export class FoldersComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Open a directory in the file explorer
+   * @param directoryPath Path of the directory to open
+   */
+  async openDirectory(directoryPath: string): Promise<void> {
+    console.log(`Opening directory: ${directoryPath}`);
+    try {
+      const result = await this.electronWindowService.openDirectory(directoryPath);
+      if (result.success) {
+        console.log(`Directory opened: ${directoryPath}`);
+      } else {
+        console.error(`Error opening directory: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error opening directory:', error);
+    }
+  }
+
+  /**
    * Stop the current indexation process
    */
   stopIndexation(): void {
@@ -267,26 +285,48 @@ export class FoldersComponent implements OnInit, OnDestroy {
 
     // Create a new array only if there are changes
     const updatedFolders = this.folders.map(folder => {
-      // Skip update if folder is already 100% indexed
-      if (folder.indexingProgress === 100) {
-        return folder;
-      }
+      // Get the current indexing status
+      const indexingStatus = this.indexingService.getIndexingStatus();
+      const isCurrentlyIndexing = indexingStatus.inProgress && indexingStatus.currentFolder === folder.name;
 
+      // Get folder stats
       const stats = this.indexingService.getFolderIndexingStats(folder.id);
+
       if (stats) {
         // Calculate progress percentage
         const progress = stats.totalFiles > 0
           ? Math.round((stats.indexedFiles / stats.totalFiles) * 100)
           : 0;
 
-        // Only update if progress has changed
-        if (progress !== folder.indexingProgress) {
+        // Determine folder status
+        let status = folder.status;
+
+        // If progress is 100%, mark as indexed
+        if (progress === 100) {
+          status = 'indexed';
+        }
+        // If progress is -1, mark as stopped
+        else if (progress === -1) {
+          status = 'stopped';
+        }
+        // If folder is currently being indexed, mark as indexing
+        else if (isCurrentlyIndexing) {
+          status = 'indexing';
+        }
+        // If folder has progress but is not currently being indexed, keep previous status or default to indexed
+        else if (progress > 0) {
+          status = status || 'indexed';
+        }
+
+        // Only update if progress or status has changed
+        if (progress !== folder.indexingProgress || status !== folder.status) {
           hasChanges = true;
           return {
             ...folder,
             indexedFiles: stats.indexedFiles,
             totalFiles: stats.totalFiles,
-            indexingProgress: progress
+            indexingProgress: progress,
+            status: status
           };
         }
       }
@@ -628,4 +668,5 @@ export interface Folder {
   indexingProgress?: number;
   errorCount?: number;
   hasErrors?: boolean;
+  status?: 'indexed' | 'indexing' | 'stopped';
 }

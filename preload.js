@@ -42,5 +42,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Indexation error log
   getIndexationErrorLog: (folderPath) => ipcRenderer.invoke('get-indexation-error-log', folderPath),
-  clearIndexationErrorLog: (folderPath) => ipcRenderer.invoke('clear-indexation-error-log', folderPath)
+  clearIndexationErrorLog: (folderPath) => ipcRenderer.invoke('clear-indexation-error-log', folderPath),
+
+  // Directory operations
+  openDirectory: (directoryPath) => ipcRenderer.invoke('open-directory', directoryPath)
 });
