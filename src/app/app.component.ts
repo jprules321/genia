@@ -8,6 +8,7 @@ import { filter } from 'rxjs/operators';
 import {EstimationService} from '../providers/estimation.service';
 import {ParseService} from '../providers/parse.service';
 import {ElectronWindowService} from '../providers/electron-window.service';
+import {IndexingService} from '../providers/indexing.service';
 import {ClickEventArgs} from '@syncfusion/ej2-navigations';
 
 // Interface for tree node data
@@ -34,10 +35,7 @@ export class AppComponent implements OnInit {
 
   public data: INodeData[] = [
     {
-      nodeId: '01', nodeText: 'Estimations', iconCss: 'e-export-pdf e-icons', routerLink: 'estimations'
-    },
-    {
-      nodeId: '02', nodeText: 'Projets', iconCss: 'e-export-pdf e-icons', routerLink: 'projects'
+      nodeId: '01', nodeText: 'Folders', iconCss: 'e-folder e-icons', routerLink: 'folders'
     }
   ];
 
@@ -56,7 +54,8 @@ export class AppComponent implements OnInit {
     private router: Router,
     private estimationService: EstimationService,
     private parse: ParseService,
-    private electronWindowService: ElectronWindowService
+    private electronWindowService: ElectronWindowService,
+    private indexingService: IndexingService
   ) {}
 
   async ngOnInit() {
@@ -69,6 +68,17 @@ export class AppComponent implements OnInit {
     setInterval(async () => {
       this.isMaximized = await this.electronWindowService.isMaximized();
     }, 1000);
+
+    // Start watching folders for changes
+    // This ensures folder watching continues even when navigating away from the Folders component
+    this.indexingService.startWatchingFolders().subscribe(
+      success => {
+        console.log('Started watching folders for changes (app level)');
+      },
+      error => {
+        console.error('Error starting folder watching (app level):', error);
+      }
+    );
   }
 
   toolbarCliked(): void {

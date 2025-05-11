@@ -1,0 +1,272 @@
+.folders-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+
+    h2 {
+      font-size: 24px;
+      color: var(--primary-color);
+      margin: 0;
+    }
+
+    button[ejs-button] {
+      min-width: 140px;
+    }
+  }
+
+  // Indexing status styles
+  .indexing-status {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f0f7ff;
+    border-radius: 4px;
+    border-left: 4px solid #0078d4;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+
+    .status-message {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+      font-weight: 500;
+      color: #0078d4;
+
+      .status-icon {
+        display: inline-block;
+        margin-right: 10px;
+        font-size: 18px;
+        animation: spin 1.5s linear infinite;
+      }
+    }
+
+    .progress-bar {
+      height: 6px;
+      background-color: #e0e0e0;
+      border-radius: 3px;
+      overflow: hidden;
+
+      .progress {
+        height: 100%;
+        background-color: #0078d4;
+        transition: width 0.3s ease;
+      }
+    }
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  // Form styles for dialogs
+  .form-group {
+    margin-bottom: 15px;
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: var(--text-color);
+    }
+  }
+
+  .file-input-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    ejs-textbox {
+      flex: 1;
+    }
+
+    button {
+      min-width: 100px;
+    }
+  }
+
+  .folders-list {
+    h3 {
+      margin-top: 0;
+      margin-bottom: 15px;
+      font-size: 18px;
+      color: var(--primary-color);
+    }
+
+    .empty-state {
+      padding: 20px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+      text-align: center;
+      color: #6c757d;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    ejs-grid {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    button[ejs-button] {
+      margin: 0 5px;
+    }
+
+    // Error indicator styles
+    .error-indicator {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+
+      .error-count {
+        display: inline-block;
+        background-color: #f44336;
+        color: white;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        line-height: 24px;
+        text-align: center;
+        font-weight: bold;
+        font-size: 12px;
+      }
+
+      button.e-warning {
+        margin-top: 5px;
+        background-color: #ff9800;
+        color: white;
+      }
+    }
+
+    .indexing-progress {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+
+      .progress-bar-small {
+        height: 6px;
+        width: 60px;
+        background-color: #e0e0e0;
+        border-radius: 3px;
+        overflow: hidden;
+
+        .progress {
+          height: 100%;
+          background-color: #0078d4;
+          transition: width 0.3s ease;
+        }
+      }
+
+      .progress-text {
+        font-size: 12px;
+        color: #666;
+        min-width: 30px;
+      }
+    }
+  }
+}
+
+// Dialog styles
+::ng-deep {
+  .e-dialog {
+    .e-dlg-header-content {
+      padding: 15px 15px 10px;
+    }
+
+    .e-dlg-content {
+      padding: 0 15px 15px;
+    }
+
+    .e-footer-content {
+      padding: 15px;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+        color: var(--text-color);
+      }
+
+      .file-input-container {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+
+        ejs-textbox {
+          flex: 1;
+        }
+      }
+    }
+
+    // Error log dialog styles
+    .error-log-header {
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #e0e0e0;
+
+      h3 {
+        margin-top: 0;
+        margin-bottom: 5px;
+        color: var(--primary-color);
+      }
+
+      p {
+        margin: 5px 0;
+        color: #666;
+      }
+    }
+
+    .error-log-container {
+      max-height: 350px;
+      overflow-y: auto;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+
+      .no-errors {
+        padding: 20px;
+        text-align: center;
+        color: #666;
+      }
+
+      .error-list {
+        .error-item {
+          padding: 10px;
+          border-bottom: 1px solid #e0e0e0;
+
+          &:last-child {
+            border-bottom: none;
+          }
+
+          &:nth-child(odd) {
+            background-color: #f8f9fa;
+          }
+
+          .error-timestamp {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+          }
+
+          .error-file {
+            font-weight: 500;
+            margin-bottom: 5px;
+            word-break: break-all;
+          }
+
+          .error-message {
+            color: #f44336;
+            word-break: break-all;
+          }
+        }
+      }
+    }
+  }
+}

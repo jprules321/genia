@@ -1,0 +1,119 @@
+<div class="control-section folders-container">
+  <div class="header">
+    <h2>Folders Management</h2>
+    <button ejs-button cssClass="e-primary" (click)="openAddFolderDialog()">Add New Folder</button>
+  </div>
+
+  <!-- Indexing Status -->
+  <div *ngIf="isIndexing" class="indexing-status">
+    <div class="status-message">
+      <span class="status-icon">⟳</span>
+      <span>Indexing folder: {{ indexingStatus.currentFolder || 'Processing' }}</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress" [style.width.%]="indexingStatus.progress"></div>
+    </div>
+  </div>
+
+  <!-- Folders List -->
+  <div class="folders-list">
+    <h3>Your Folders</h3>
+
+    <div *ngIf="folders.length === 0" class="empty-state">
+      No folders added yet. Add your first folder above.
+    </div>
+
+    <ejs-grid #grid [dataSource]="folders" *ngIf="folders.length > 0" [allowPaging]="true" [pageSettings]="{ pageSize: 10 }">
+      <e-columns>
+        <e-column field="name" headerText="Name" width="120"></e-column>
+        <e-column field="path" headerText="Path" width="200"></e-column>
+        <e-column field="createdAt" headerText="Created" width="100" type="date" format="yMd"></e-column>
+        <e-column headerText="Indexed" width="120" textAlign="Center">
+          <ng-template #template let-data>
+            <div class="indexing-progress">
+              <div class="progress-bar-small">
+                <div class="progress" [style.width.%]="data.indexingProgress || 0"></div>
+              </div>
+              <span class="progress-text">{{ data.indexingProgress || 0 }}%</span>
+            </div>
+          </ng-template>
+        </e-column>
+        <e-column headerText="Errors" width="80" textAlign="Center">
+          <ng-template #template let-data>
+            <div *ngIf="data.hasErrors" class="error-indicator">
+              <span class="error-count">{{ data.errorCount }}</span>
+              <button ejs-button cssClass="e-warning e-small" (click)="openErrorLog(data)">View Log</button>
+            </div>
+            <span *ngIf="!data.hasErrors">No errors</span>
+          </ng-template>
+        </e-column>
+        <e-column headerText="Actions" width="120" textAlign="Center">
+          <ng-template #template let-data>
+            <button ejs-button cssClass="e-info e-small" (click)="updateFolder(data)">Edit</button>
+            <button ejs-button cssClass="e-danger e-small" (click)="deleteFolder(data.id)">Delete</button>
+          </ng-template>
+        </e-column>
+      </e-columns>
+    </ejs-grid>
+  </div>
+
+  <!-- Edit Dialog -->
+  <ejs-dialog #editDialog [visible]="dialogVisible" [header]="'Edit Folder'" [showCloseIcon]="true"
+    [buttons]="dialogButtons" [isModal]="true" [width]="400" (close)="closeDialog()">
+    <ng-template #content>
+      <div class="form-group">
+        <label for="editFolderPath">Folder Path:</label>
+        <div class="file-input-container">
+          <ejs-textbox id="editFolderPath" [(value)]="editingFolder.path" placeholder="Select a folder"></ejs-textbox>
+          <button ejs-button cssClass="e-primary" (click)="selectFolder('edit')">Browse</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="editFolderName">Folder Name:</label>
+        <ejs-textbox id="editFolderName" [(value)]="editingFolder.name" placeholder="Enter folder name"></ejs-textbox>
+      </div>
+    </ng-template>
+  </ejs-dialog>
+
+  <!-- Add Folder Dialog -->
+  <ejs-dialog #addDialog [visible]="addDialogVisible" [header]="'Add New Folder'" [showCloseIcon]="true"
+    [buttons]="addDialogButtons" [isModal]="true" [width]="400" (close)="closeAddDialog()">
+    <ng-template #content>
+      <div class="form-group">
+        <label for="folderPath">Folder Path:</label>
+        <div class="file-input-container">
+          <ejs-textbox id="folderPath" [(value)]="newFolder.path" placeholder="Select a folder"></ejs-textbox>
+          <button ejs-button cssClass="e-primary" (click)="selectFolder('new')">Browse</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="folderName">Folder Name:</label>
+        <ejs-textbox id="folderName" [(value)]="newFolder.name" placeholder="Enter folder name"></ejs-textbox>
+      </div>
+    </ng-template>
+  </ejs-dialog>
+
+  <!-- Error Log Dialog -->
+  <ejs-dialog #errorLogDialog [visible]="errorLogDialogVisible" [header]="'Indexation Error Log'" [showCloseIcon]="true"
+    [buttons]="errorLogButtons" [isModal]="true" [width]="700" [height]="500" (close)="closeErrorLogDialog()">
+    <ng-template #content>
+      <div *ngIf="currentErrorFolder" class="error-log-header">
+        <h3>Errors for folder: {{ currentErrorFolder.name }}</h3>
+        <p>Path: {{ currentErrorFolder.path }}</p>
+        <p>Total errors: {{ currentErrorLog.length }}</p>
+      </div>
+      <div class="error-log-container">
+        <div *ngIf="currentErrorLog.length === 0" class="no-errors">
+          No errors found for this folder.
+        </div>
+        <div *ngIf="currentErrorLog.length > 0" class="error-list">
+          <div *ngFor="let error of currentErrorLog" class="error-item">
+            <div class="error-timestamp">{{ error.timestamp | date:'medium' }}</div>
+            <div class="error-file">File: {{ error.filePath }}</div>
+            <div class="error-message">Error: {{ error.error }}</div>
+          </div>
+        </div>
+      </div>
+    </ng-template>
+  </ejs-dialog>
+</div>

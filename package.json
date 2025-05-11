@@ -41,6 +41,7 @@
     "@syncfusion/ej2-data": "^29.1.33",
     "@syncfusion/ej2-icons": "^29.1.33",
     "@types/parse": "^3.0.9",
+    "chokidar": "^3.6.0",
     "parse": "^6.1.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
@@ -66,7 +67,7 @@
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.yourdomain.genia",
+    "appId": "com.webez.genia",
     "productName": "Genia",
     "files": [
       "dist/genia/browser/**/*",
