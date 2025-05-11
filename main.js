@@ -17,6 +17,72 @@ let indexationErrorLog = {
   lastUpdated: null
 };
 
+// File queue for batch processing
+let fileQueue = [];
+let processingBatch = false;
+
+// Simple throttle implementation
+function throttle(func, delay) {
+  let lastCall = 0;
+  return function(...args) {
+    const now = Date.now();
+    if (now - lastCall >= delay) {
+      lastCall = now;
+      return func.apply(this, args);
+    }
+  };
+}
+
+// Simple debounce implementation
+function debounce(func, delay) {
+  let timeoutId;
+  return function(...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      func.apply(this, args);
+    }, delay);
+  };
+}
+
+// Queue a file for indexing or removal
+function queueFileForProcessing(path, folderId, folderPath, action) {
+  fileQueue.push({ path, folderId, folderPath, action });
+
+  if (!processingBatch) {
+    processBatch();
+  }
+}
+
+// Process files in batches
+async function processBatch() {
+  if (fileQueue.length === 0) {
+    processingBatch = false;
+    return;
+  }
+
+  processingBatch = true;
+
+  // Take a batch of up to 50 files
+  const batch = fileQueue.splice(0, 50);
+
+  // Process the batch
+  for (const item of batch) {
+    try {
+      if (item.action === 'add' || item.action === 'change') {
+        await indexFile(item.path, item.folderId, item.folderPath);
+      } else if (item.action === 'unlink') {
+        await removeFileFromIndex(item.path, item.folderId, item.folderPath);
+      }
+    } catch (error) {
+      console.error(`Error processing file ${item.path}:`, error);
+      logIndexationError(item.folderPath, item.path, error);
+    }
+  }
+
+  // Process next batch after a short delay
+  setTimeout(processBatch, 100);
+}
+
 // Helper function to add an error to the log
 function logIndexationError(folderPath, filePath, error) {
   indexationErrorLog.errors.push({
@@ -591,13 +657,25 @@ if (!gotTheLock) {
   // Handler for starting folder watching, including all subdirectories (deep watching)
   ipcMain.handle('start-watching-folders', async (event, folderPaths) => {
     try {
-      console.log(`Starting to watch ${folderPaths.length} folders`);
+      console.log(`Scheduling watching of ${folderPaths.length} folders`);
+
+      // Add a delay before starting watchers to prevent UI lag
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      console.log(`Starting to watch ${folderPaths.length} folders after delay`);
 
       // Stop any existing watchers
       await stopAllWatchers();
 
-      // Start new watchers for each folder
-      for (const folderPath of folderPaths) {
+      // Start new watchers for each folder with staggered delays
+      for (let i = 0; i < folderPaths.length; i++) {
+        const folderPath = folderPaths[i];
+
+        // Add a staggered delay between starting each watcher (500ms per folder)
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
         try {
           // Check if folder exists
           const stats = await fsPromises.stat(folderPath);
@@ -607,31 +685,52 @@ if (!gotTheLock) {
           }
 
           // Create a watcher for this folder and all its subdirectories (deep watching)
+          // Optimized configuration to reduce lag
           const watcher = chokidar.watch(folderPath, {
             persistent: true,
             ignoreInitial: true,
-            ignored: /(^|[\/\\])\../, // Ignore hidden files
-            depth: 99 // Watch subdirectories recursively (enables deep watching)
+            ignored: [
+              /(^|[\/\\])\./, // Ignore hidden files
+              // Ignore non-indexable file extensions upfront
+              '**/*.{jpg,jpeg,png,gif,bmp,ico,svg,mp3,mp4,avi,mov,wmv,zip,rar,exe,dll,bin}',
+              // Add more non-indexable extensions as needed
+              '**/node_modules/**', // Ignore node_modules folders
+              '**/build/**', // Ignore build folders
+              '**/dist/**' // Ignore dist folders
+            ],
+            depth: 10, // Limit depth to a reasonable level
+            awaitWriteFinish: {
+              stabilityThreshold: 2000, // Wait for file to be stable for 2 seconds
+              pollInterval: 100 // Poll every 100ms
+            },
+            usePolling: false, // Avoid polling when possible
+            alwaysStat: false, // Don't stat files unnecessarily
+            disableGlobbing: true // Disable globbing for better performance
           });
 
-          // Handle file events
-          watcher.on('add', path => {
+          // Create throttled and debounced handlers
+          const throttledAddHandler = throttle((path) => {
             console.log(`File ${path} has been added`);
-            // Index the new file with the consistent folder ID
-            indexFile(path, folderId);
-          });
+            // Queue the file for indexing
+            queueFileForProcessing(path, folderId, folderPath, 'add');
+          }, 300);
 
-          watcher.on('change', path => {
+          const debouncedChangeHandler = debounce((path) => {
             console.log(`File ${path} has been changed`);
-            // Re-index the changed file with the consistent folder ID
-            indexFile(path, folderId);
-          });
+            // Queue the file for re-indexing
+            queueFileForProcessing(path, folderId, folderPath, 'change');
+          }, 500);
 
-          watcher.on('unlink', path => {
+          const throttledUnlinkHandler = throttle((path) => {
             console.log(`File ${path} has been removed`);
-            // Remove the file from the index with the consistent folder ID
-            removeFileFromIndex(path, folderId, folderPath);
-          });
+            // Queue the file for removal from index
+            queueFileForProcessing(path, folderId, folderPath, 'unlink');
+          }, 300);
+
+          // Handle file events with throttling and debouncing
+          watcher.on('add', throttledAddHandler);
+          watcher.on('change', debouncedChangeHandler);
+          watcher.on('unlink', throttledUnlinkHandler);
 
           // Generate a consistent folder ID for this folder
           const folderId = Date.now().toString() + '-' + folderPath.replace(/[^a-zA-Z0-9]/g, '-');
