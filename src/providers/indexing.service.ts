@@ -23,6 +23,82 @@ export interface IndexingStatus {
   currentFile?: string;
   progress: number; // 0-100
   error?: string;
+  startTime?: Date;
+  endTime?: Date;
+  estimatedTimeRemaining?: number; // in milliseconds
+  processingSpeed?: number; // files per second
+  totalFiles?: number;
+  processedFiles?: number;
+  errorCount?: number;
+  cancellationToken?: CancellationToken; // Token for cancelling the operation
+  isCancelled?: boolean; // Whether the operation has been cancelled
+}
+
+export enum IndexationErrorType {
+  NETWORK = 'network',
+  FILE_SYSTEM = 'file_system',
+  PERMISSION = 'permission',
+  DATABASE = 'database',
+  TIMEOUT = 'timeout',
+  CANCELLED = 'cancelled',
+  UNKNOWN = 'unknown'
+}
+
+/**
+ * Cancellation token for long-running operations
+ */
+export class CancellationToken {
+  private _isCancelled = false;
+  private _cancelCallbacks: (() => void)[] = [];
+
+  /**
+   * Check if the operation has been cancelled
+   */
+  get isCancelled(): boolean {
+    return this._isCancelled;
+  }
+
+  /**
+   * Cancel the operation
+   */
+  cancel(): void {
+    if (!this._isCancelled) {
+      this._isCancelled = true;
+      // Execute all registered callbacks
+      this._cancelCallbacks.forEach(callback => {
+        try {
+          callback();
+        } catch (error) {
+          console.error('Error in cancellation callback:', error);
+        }
+      });
+    }
+  }
+
+  /**
+   * Register a callback to be called when the operation is cancelled
+   * @param callback The callback function
+   * @returns A function to unregister the callback
+   */
+  onCancel(callback: () => void): () => void {
+    this._cancelCallbacks.push(callback);
+    return () => {
+      const index = this._cancelCallbacks.indexOf(callback);
+      if (index !== -1) {
+        this._cancelCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * Throw an error if the operation has been cancelled
+   * @throws Error if the operation has been cancelled
+   */
+  throwIfCancelled(): void {
+    if (this._isCancelled) {
+      throw new Error('Operation was cancelled');
+    }
+  }
 }
 
 export interface IndexationError {
@@ -30,6 +106,8 @@ export interface IndexationError {
   folderPath: string;
   filePath: string;
   error: string;
+  errorType: IndexationErrorType;
+  details?: any;
 }
 
 @Injectable({
@@ -179,12 +257,56 @@ export class IndexingService implements OnDestroy {
       // Keep the progress value as -1 to indicate stopped
     }
 
-    // Update the global status
+    // Calculate enhanced progress metrics
+    const now = new Date();
+
+    // If this is the first update or we're starting a new indexation, initialize startTime
+    if (!this.status.startTime || !this.status.inProgress ||
+        (inProgress && this.status.progress === 100)) {
+      this.status.startTime = now;
+      this.status.processedFiles = 0;
+      this.status.errorCount = 0;
+    }
+
+    // Calculate processing speed and estimated time remaining
+    let processingSpeed = 0;
+    let estimatedTimeRemaining = 0;
+
+    if (this.status.startTime && update.indexedFiles > 0) {
+      // Time elapsed in seconds
+      const elapsedTime = (now.getTime() - this.status.startTime.getTime()) / 1000;
+
+      if (elapsedTime > 0) {
+        // Files processed per second
+        processingSpeed = update.indexedFiles / elapsedTime;
+
+        // Estimate time remaining if we have total files and progress is not 100%
+        if (update.totalFiles > 0 && progress < 100) {
+          const remainingFiles = update.totalFiles - update.indexedFiles;
+          estimatedTimeRemaining = (remainingFiles / processingSpeed) * 1000; // convert to ms
+        }
+      }
+    }
+
+    // Track error count if available
+    const errorCount = update.errors || this.status.errorCount || 0;
+
+    // Set end time if indexation is complete or stopped
+    const endTime = (!inProgress) ? now : undefined;
+
+    // Update the global status with enhanced metrics
     this.status = {
       inProgress: inProgress,
       currentFolder: update.folderPath,
-      currentFile: undefined, // We don't have this information
-      progress: progress
+      currentFile: update.currentFile, // May be undefined
+      progress: progress,
+      startTime: this.status.startTime,
+      endTime: endTime,
+      processingSpeed: processingSpeed,
+      estimatedTimeRemaining: estimatedTimeRemaining,
+      totalFiles: update.totalFiles,
+      processedFiles: update.indexedFiles,
+      errorCount: errorCount
     };
     this.saveStatus();
 
@@ -204,32 +326,28 @@ export class IndexingService implements OnDestroy {
         if (this.status.progress === 100) {
           this.status = {
             inProgress: false,
-            progress: 100
+            progress: 100,
+            startTime: this.status.startTime,
+            endTime: now,
+            totalFiles: this.status.totalFiles,
+            processedFiles: this.status.processedFiles,
+            errorCount: this.status.errorCount
           };
         }
         this.saveStatus();
         this.saveFolderStats();
+
+        // Log completion statistics
+        if (this.status.startTime && this.status.endTime) {
+          const totalTime = (this.status.endTime.getTime() - this.status.startTime.getTime()) / 1000;
+          console.log(`Indexation completed in ${totalTime.toFixed(2)} seconds`);
+          console.log(`Processed ${this.status.processedFiles} files (${this.status.errorCount} errors)`);
+          console.log(`Average processing speed: ${(this.status.processedFiles / totalTime).toFixed(2)} files/second`);
+        }
       }, 500);
     }
   }
 
-  /**
-   * Get all indexed files - now returns an empty array since files are stored in SQLite
-   * This method is kept for backward compatibility but should not be used
-   */
-  getIndexedFiles(): Observable<IndexedFile[]> {
-    console.warn('getIndexedFiles() is deprecated - files are now stored in SQLite database');
-    return of([]);
-  }
-
-  /**
-   * Get indexed files for a specific folder - now returns an empty array since files are stored in SQLite
-   * This method is kept for backward compatibility but should not be used
-   */
-  getIndexedFilesForFolder(folderId: string): Observable<IndexedFile[]> {
-    console.warn('getIndexedFilesForFolder() is deprecated - files are now stored in SQLite database');
-    return of([]);
-  }
 
   /**
    * Handle request from main process to get folder ID for a folder path
@@ -298,18 +416,33 @@ export class IndexingService implements OnDestroy {
 
   /**
    * Start indexing a specific folder
+   * @param folder The folder to index
+   * @param cancellationToken Optional cancellation token to cancel the operation
    */
-  indexFolder(folder: Folder): Observable<boolean> {
-    // Update status
+  indexFolder(folder: Folder, cancellationToken?: CancellationToken): Observable<boolean> {
+    // Create a new cancellation token if one wasn't provided
+    const token = cancellationToken || new CancellationToken();
+
+    // Update status with cancellation token
     this.status = {
       inProgress: true,
       currentFolder: folder.name,
-      progress: 0
+      progress: 0,
+      cancellationToken: token,
+      isCancelled: false
     };
     this.saveStatus();
 
+    // Register a callback to update status when cancelled
+    const unregisterCallback = token.onCancel(() => {
+      console.log(`Indexation of folder ${folder.name} was cancelled`);
+      this.status.isCancelled = true;
+      this.status.error = 'Indexation cancelled by user';
+      this.saveStatus();
+    });
+
     // Call the Electron main process to read and index files
-    return from(this.invokeIndexFolder(folder)).pipe(
+    return from(this.invokeIndexFolder(folder, token)).pipe(
       tap(result => {
         console.log('Folder indexation completed:', result);
 
@@ -323,15 +456,27 @@ export class IndexingService implements OnDestroy {
             totalFiles: result.totalFiles || result.filesIndexed || 0
           });
         }
+
+        // Clean up the cancellation callback
+        unregisterCallback();
       }),
       catchError(error => {
         console.error('Error indexing folder:', error);
+
+        // Check if the error was due to cancellation
+        const wasCancelled = token.isCancelled;
+
         this.status = {
           inProgress: false,
           progress: 0,
-          error: error.toString()
+          error: wasCancelled ? 'Indexation cancelled by user' : error.toString(),
+          isCancelled: wasCancelled
         };
         this.saveStatus();
+
+        // Clean up the cancellation callback
+        unregisterCallback();
+
         throw error;
       })
     );
@@ -339,41 +484,66 @@ export class IndexingService implements OnDestroy {
 
   /**
    * Start indexing all folders
+   * @param cancellationToken Optional cancellation token to cancel the operation
    */
-  indexAllFolders(): Observable<boolean> {
+  indexAllFolders(cancellationToken?: CancellationToken): Observable<boolean> {
     return this.foldersService.getFolders().pipe(
       switchMap(folders => {
         if (folders.length === 0) {
           return of(true);
         }
 
-        // Update status
+        // Create a new cancellation token if one wasn't provided
+        const token = cancellationToken || new CancellationToken();
+
+        // Update status with cancellation token
         this.status = {
           inProgress: true,
           currentFolder: 'All folders',
-          progress: 0
+          progress: 0,
+          cancellationToken: token,
+          isCancelled: false
         };
         this.saveStatus();
 
-        // This would call the Electron main process to read and index files
-        // For now, we'll simulate this with a placeholder
-        return from(this.invokeIndexAllFolders(folders)).pipe(
-          tap(success => {
+        // Register a callback to update status when cancelled
+        const unregisterCallback = token.onCancel(() => {
+          console.log('Indexation of all folders was cancelled');
+          this.status.isCancelled = true;
+          this.status.error = 'Indexation cancelled by user';
+          this.saveStatus();
+        });
+
+        // Call the Electron main process to read and index files
+        return from(this.invokeIndexAllFolders(folders, token)).pipe(
+          tap(result => {
             // Update status when done
             this.status = {
               inProgress: false,
               progress: 100
             };
             this.saveStatus();
+
+            // Clean up the cancellation callback
+            unregisterCallback();
           }),
           catchError(error => {
             console.error('Error indexing all folders:', error);
+
+            // Check if the error was due to cancellation
+            const wasCancelled = token.isCancelled;
+
             this.status = {
               inProgress: false,
               progress: 0,
-              error: error.toString()
+              error: wasCancelled ? 'Indexation cancelled by user' : error.toString(),
+              isCancelled: wasCancelled
             };
             this.saveStatus();
+
+            // Clean up the cancellation callback
+            unregisterCallback();
+
             throw error;
           })
         );
@@ -573,36 +743,6 @@ export class IndexingService implements OnDestroy {
     localStorage.setItem(this.FOLDER_STATS_KEY, JSON.stringify(statsObj));
   }
 
-  /**
-   * Save an indexed file to storage - deprecated, files are now stored in SQLite
-   * This method is kept for backward compatibility but should not be used
-   */
-  private saveIndexedFile(file: IndexedFile): Observable<IndexedFile> {
-    console.warn('saveIndexedFile() is deprecated - files are now stored in SQLite database');
-    return of(file);
-  }
-
-  /**
-   * Save multiple indexed files to storage - deprecated, files are now stored in SQLite
-   * This method is kept for backward compatibility but should not be used
-   * @param files Array of files to save
-   * @returns Observable of the number of files saved
-   */
-  private saveIndexedFilesBatch(files: IndexedFile[]): Observable<number> {
-    console.warn('saveIndexedFilesBatch() is deprecated - files are now stored in SQLite database');
-    return of(files ? files.length : 0);
-  }
-
-  /**
-   * Remove a file from the index - deprecated, files are now stored in SQLite
-   * This method is kept for backward compatibility but should not be used
-   * @param filePath Path of the file to remove
-   * @param folderId ID of the folder containing the file
-   */
-  removeFileFromIndex(filePath: string, folderId: string): Observable<boolean> {
-    console.warn('removeFileFromIndex() is deprecated - files are now stored in SQLite database');
-    return of(true);
-  }
 
   /**
    * Save current status to localStorage
@@ -612,73 +752,386 @@ export class IndexingService implements OnDestroy {
   }
 
   /**
-   * Call Electron IPC to index a folder
+   * Categorize an error based on its type and message
+   * @param error The error object
+   * @param folderPath Optional folder path associated with the error
+   * @param filePath Optional file path associated with the error
+   * @returns An IndexationError object with categorized error information
    */
-  private async invokeIndexFolder(folder: Folder): Promise<any> {
+  private categorizeError(error: any, folderPath?: string, filePath?: string): IndexationError {
+    const errorMessage = error?.message || error?.toString() || 'Unknown error';
+    let errorType = IndexationErrorType.UNKNOWN;
+    let details = null;
+
+    // Categorize based on error message patterns
+    if (errorMessage.includes('EACCES') || errorMessage.includes('permission')) {
+      errorType = IndexationErrorType.PERMISSION;
+    } else if (errorMessage.includes('ENOENT') || errorMessage.includes('no such file') ||
+               errorMessage.includes('EISDIR') || errorMessage.includes('ENOTDIR')) {
+      errorType = IndexationErrorType.FILE_SYSTEM;
+    } else if (errorMessage.includes('network') || errorMessage.includes('connection') ||
+               errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+      errorType = IndexationErrorType.NETWORK;
+    } else if (errorMessage.includes('database') || errorMessage.includes('SQL') ||
+               errorMessage.includes('query')) {
+      errorType = IndexationErrorType.DATABASE;
+    } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+      errorType = IndexationErrorType.TIMEOUT;
+    }
+
+    // Extract additional details if available
+    if (error.code) {
+      details = { code: error.code };
+    }
+    if (error.stack) {
+      details = { ...details, stack: error.stack };
+    }
+
+    return {
+      timestamp: new Date(),
+      folderPath: folderPath || 'unknown',
+      filePath: filePath || 'unknown',
+      error: errorMessage,
+      errorType,
+      details
+    };
+  }
+
+  /**
+   * Call Electron IPC to index a folder
+   * @param folder The folder to index
+   * @param cancellationToken Optional cancellation token to cancel the operation
+   */
+  private async invokeIndexFolder(folder: Folder, cancellationToken?: CancellationToken): Promise<any> {
     try {
       console.log(`Indexing folder: ${folder.name} (${folder.path})`);
-      const result = await this.electronWindowService.indexFolder(folder.path);
 
-      if (result.success) {
-        // The folder stats are now updated by the handleIndexationProgressUpdate method
-        // which is called when we receive progress updates from the main process
+      // Update status to indicate indexing is in progress
+      this.status.inProgress = true;
+      this.status.currentFolder = folder.path;
+      this.status.error = undefined;
+      this.saveStatus();
 
-        // Update the folder object with indexing progress
-        folder.indexedFiles = result.filesIndexed || 0;
-        folder.totalFiles = result.totalFiles || result.filesIndexed || 0;
-        folder.indexingProgress = result.totalFiles > 0
-          ? Math.round((result.filesIndexed / result.totalFiles) * 100)
-          : 100;
+      // Check if operation was cancelled before starting
+      if (cancellationToken && cancellationToken.isCancelled) {
+        console.log(`Indexation of folder ${folder.name} was cancelled before starting`);
+        return {
+          success: false,
+          error: 'Operation cancelled by user',
+          errorType: IndexationErrorType.CANCELLED,
+          details: { folderPath: folder.path }
+        };
       }
 
-      return result;
+      // Pass cancellation information to the main process
+      const result = await this.electronWindowService.indexFolder(folder.path, {
+        canBeCancelled: !!cancellationToken
+      });
+
+      // Check periodically if the operation has been cancelled
+      const checkCancellation = () => {
+        if (cancellationToken && cancellationToken.isCancelled) {
+          // Send cancellation request to main process
+          this.electronWindowService.cancelFolderIndexation(folder.path)
+            .catch(err => console.error('Error cancelling indexation:', err));
+          return true;
+        }
+        return false;
+      };
+
+      // Set up cancellation checking interval
+      let cancellationInterval: any;
+      if (cancellationToken) {
+        cancellationInterval = setInterval(checkCancellation, 500);
+      }
+
+      try {
+        // Wait for the result
+        if (result.success) {
+          // The folder stats are now updated by the handleIndexationProgressUpdate method
+          // which is called when we receive progress updates from the main process
+
+          // Update the folder object with indexing progress
+          folder.indexedFiles = result.filesIndexed || 0;
+          folder.totalFiles = result.totalFiles || result.filesIndexed || 0;
+          folder.indexingProgress = result.totalFiles > 0
+            ? Math.round((result.filesIndexed / result.totalFiles) * 100)
+            : 100;
+
+          // Update status to indicate indexing is complete for this folder
+          if (this.status.currentFolder === folder.path) {
+            this.status.currentFolder = undefined;
+            this.status.currentFile = undefined;
+            this.status.progress = 100;
+            this.saveStatus();
+          }
+        } else if (result.error) {
+          // Check if the error was due to cancellation
+          if (result.errorType === IndexationErrorType.CANCELLED ||
+              (cancellationToken && cancellationToken.isCancelled)) {
+            return {
+              success: false,
+              error: 'Operation cancelled by user',
+              errorType: IndexationErrorType.CANCELLED,
+              details: { folderPath: folder.path }
+            };
+          }
+
+          // Handle other errors from the result
+          const errorInfo = this.categorizeError(result.error, folder.path);
+          console.error(`Error indexing folder ${folder.name}:`, errorInfo);
+
+          // Update status to indicate error
+          this.status.error = `Error indexing folder ${folder.name}: ${errorInfo.error}`;
+          this.saveStatus();
+
+          // Return detailed error information
+          return {
+            success: false,
+            error: errorInfo.error,
+            errorType: errorInfo.errorType,
+            details: errorInfo.details
+          };
+        }
+
+        return result;
+      } finally {
+        // Clean up the cancellation interval
+        if (cancellationInterval) {
+          clearInterval(cancellationInterval);
+        }
+      }
     } catch (error) {
-      console.error('Error in invokeIndexFolder:', error);
-      return { success: false, error: error.toString() };
+      // Check if the error was due to cancellation
+      if (cancellationToken && cancellationToken.isCancelled) {
+        return {
+          success: false,
+          error: 'Operation cancelled by user',
+          errorType: IndexationErrorType.CANCELLED,
+          details: { folderPath: folder.path }
+        };
+      }
+
+      // Handle unexpected errors
+      const errorInfo = this.categorizeError(error, folder.path);
+      console.error('Error in invokeIndexFolder:', errorInfo);
+
+      // Update status to indicate error
+      this.status.error = `Unexpected error indexing folder ${folder.name}: ${errorInfo.error}`;
+      this.saveStatus();
+
+      // Return detailed error information
+      return {
+        success: false,
+        error: errorInfo.error,
+        errorType: errorInfo.errorType,
+        details: errorInfo.details
+      };
     }
   }
 
   /**
    * Call Electron IPC to index all folders
+   * @param folders Array of folders to index
+   * @param cancellationToken Optional cancellation token to cancel the operation
    */
-  private async invokeIndexAllFolders(folders: Folder[]): Promise<boolean> {
+  private async invokeIndexAllFolders(folders: Folder[], cancellationToken?: CancellationToken): Promise<any> {
     try {
       console.log(`Indexing ${folders.length} folders`);
+
+      // Update status to indicate indexing is in progress
+      this.status.inProgress = true;
+      this.status.currentFolder = 'Multiple folders';
+      this.status.error = undefined;
+      this.saveStatus();
+
+      // Check if operation was cancelled before starting
+      if (cancellationToken && cancellationToken.isCancelled) {
+        console.log('Indexation of all folders was cancelled before starting');
+        return {
+          success: false,
+          error: 'Operation cancelled by user',
+          errorType: IndexationErrorType.CANCELLED,
+          details: { folderCount: folders.length }
+        };
+      }
+
       const folderPaths = folders.map(folder => folder.path);
-      const result = await this.electronWindowService.indexAllFolders(folderPaths);
-      return result.success;
+
+      // Pass cancellation information to the main process
+      const result = await this.electronWindowService.indexAllFolders(folderPaths, {
+        canBeCancelled: !!cancellationToken
+      });
+
+      // Check periodically if the operation has been cancelled
+      const checkCancellation = () => {
+        if (cancellationToken && cancellationToken.isCancelled) {
+          // Send cancellation request to main process for each folder
+          folderPaths.forEach(folderPath => {
+            this.electronWindowService.cancelFolderIndexation(folderPath)
+              .catch(err => console.error(`Error cancelling indexation for ${folderPath}:`, err));
+          });
+          return true;
+        }
+        return false;
+      };
+
+      // Set up cancellation checking interval
+      let cancellationInterval: any;
+      if (cancellationToken) {
+        cancellationInterval = setInterval(checkCancellation, 500);
+      }
+
+      try {
+        // Process the result
+        if (result.success) {
+          // Update status to indicate indexing is complete
+          this.status.inProgress = false;
+          this.status.currentFolder = undefined;
+          this.status.currentFile = undefined;
+          this.status.progress = 100;
+          this.saveStatus();
+
+          return result;
+        } else if (result.error) {
+          // Check if the error was due to cancellation
+          if (result.errorType === IndexationErrorType.CANCELLED ||
+              (cancellationToken && cancellationToken.isCancelled)) {
+            return {
+              success: false,
+              error: 'Operation cancelled by user',
+              errorType: IndexationErrorType.CANCELLED,
+              details: { folderCount: folders.length }
+            };
+          }
+
+          // Handle other errors from the result
+          const errorInfo = this.categorizeError(result.error);
+          console.error(`Error indexing multiple folders:`, errorInfo);
+
+          // Update status to indicate error
+          this.status.error = `Error indexing multiple folders: ${errorInfo.error}`;
+          this.saveStatus();
+
+          // Return detailed error information
+          return {
+            success: false,
+            error: errorInfo.error,
+            errorType: errorInfo.errorType,
+            details: errorInfo.details
+          };
+        }
+
+        return result;
+      } finally {
+        // Clean up the cancellation interval
+        if (cancellationInterval) {
+          clearInterval(cancellationInterval);
+        }
+      }
     } catch (error) {
-      console.error('Error in invokeIndexAllFolders:', error);
-      return false;
+      // Check if the error was due to cancellation
+      if (cancellationToken && cancellationToken.isCancelled) {
+        return {
+          success: false,
+          error: 'Operation cancelled by user',
+          errorType: IndexationErrorType.CANCELLED,
+          details: { folderCount: folders.length }
+        };
+      }
+
+      // Handle unexpected errors
+      const errorInfo = this.categorizeError(error);
+      console.error('Error in invokeIndexAllFolders:', errorInfo);
+
+      // Update status to indicate error
+      this.status.error = `Unexpected error indexing multiple folders: ${errorInfo.error}`;
+      this.saveStatus();
+
+      // Return detailed error information
+      return {
+        success: false,
+        error: errorInfo.error,
+        errorType: errorInfo.errorType,
+        details: errorInfo.details
+      };
     }
   }
 
   /**
    * Call Electron IPC to start watching folders
    */
-  private async invokeStartWatching(folders: Folder[]): Promise<boolean> {
+  private async invokeStartWatching(folders: Folder[]): Promise<any> {
     try {
       console.log(`Starting to watch ${folders.length} folders`);
       const folderPaths = folders.map(folder => folder.path);
       const result = await this.electronWindowService.startWatchingFolders(folderPaths);
-      return result.success;
+
+      if (!result.success && result.error) {
+        // Handle error from the result
+        const errorInfo = this.categorizeError(result.error);
+        console.error(`Error starting to watch folders:`, errorInfo);
+
+        // Return detailed error information
+        return {
+          success: false,
+          error: errorInfo.error,
+          errorType: errorInfo.errorType,
+          details: errorInfo.details
+        };
+      }
+
+      return result;
     } catch (error) {
-      console.error('Error in invokeStartWatching:', error);
-      return false;
+      // Handle unexpected errors
+      const errorInfo = this.categorizeError(error);
+      console.error('Error in invokeStartWatching:', errorInfo);
+
+      // Return detailed error information
+      return {
+        success: false,
+        error: errorInfo.error,
+        errorType: errorInfo.errorType,
+        details: errorInfo.details
+      };
     }
   }
 
   /**
    * Call Electron IPC to stop watching folders
    */
-  private async invokeStopWatching(): Promise<boolean> {
+  private async invokeStopWatching(): Promise<any> {
     try {
       console.log('Stopping folder watching');
       const result = await this.electronWindowService.stopWatchingFolders();
-      return result.success;
+
+      if (!result.success && result.error) {
+        // Handle error from the result
+        const errorInfo = this.categorizeError(result.error);
+        console.error(`Error stopping folder watching:`, errorInfo);
+
+        // Return detailed error information
+        return {
+          success: false,
+          error: errorInfo.error,
+          errorType: errorInfo.errorType,
+          details: errorInfo.details
+        };
+      }
+
+      return result;
     } catch (error) {
-      console.error('Error in invokeStopWatching:', error);
-      return false;
+      // Handle unexpected errors
+      const errorInfo = this.categorizeError(error);
+      console.error('Error in invokeStopWatching:', errorInfo);
+
+      // Return detailed error information
+      return {
+        success: false,
+        error: errorInfo.error,
+        errorType: errorInfo.errorType,
+        details: errorInfo.details
+      };
     }
   }
 
@@ -687,14 +1140,38 @@ export class IndexingService implements OnDestroy {
    * @param filePath Path of the file to remove
    * @param folderId ID of the folder containing the file
    */
-  private async invokeRemoveFileFromIndex(filePath: string, folderId: string): Promise<boolean> {
+  private async invokeRemoveFileFromIndex(filePath: string, folderId: string): Promise<any> {
     try {
       console.log(`Removing file from index: ${filePath}`);
       const result = await this.electronWindowService.removeFileFromIndex(filePath, folderId);
-      return result.success;
+
+      if (!result.success && result.error) {
+        // Handle error from the result
+        const errorInfo = this.categorizeError(result.error, undefined, filePath);
+        console.error(`Error removing file from index:`, errorInfo);
+
+        // Return detailed error information
+        return {
+          success: false,
+          error: errorInfo.error,
+          errorType: errorInfo.errorType,
+          details: errorInfo.details
+        };
+      }
+
+      return result;
     } catch (error) {
-      console.error('Error in invokeRemoveFileFromIndex:', error);
-      return false;
+      // Handle unexpected errors
+      const errorInfo = this.categorizeError(error, undefined, filePath);
+      console.error('Error in invokeRemoveFileFromIndex:', errorInfo);
+
+      // Return detailed error information
+      return {
+        success: false,
+        error: errorInfo.error,
+        errorType: errorInfo.errorType,
+        details: errorInfo.details
+      };
     }
   }
 

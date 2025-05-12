@@ -22,8 +22,9 @@ declare global {
       // Include your existing electronAPI methods
       showOpenDialog: (options: any) => Promise<any>;
       // File indexing and watching methods
-      indexFolder: (folderPath: string) => Promise<any>;
-      indexAllFolders: (folderPaths: string[]) => Promise<any>;
+      indexFolder: (folderPath: string, options?: { canBeCancelled?: boolean }) => Promise<any>;
+      cancelFolderIndexation: (folderPath: string) => Promise<any>;
+      indexAllFolders: (folderPaths: string[], options?: { canBeCancelled?: boolean }) => Promise<any>;
       startWatchingFolders: (folderPaths: string[]) => Promise<any>;
       stopWatchingFolders: () => Promise<any>;
       stopFolderIndexation: (folderPath: string) => Promise<any>;
@@ -140,10 +141,22 @@ export class ElectronWindowService {
   /**
    * Index a single folder
    * @param folderPath Path to the folder to index
+   * @param options Optional indexing options, including cancellation support
    */
-  async indexFolder(folderPath: string): Promise<any> {
+  async indexFolder(folderPath: string, options?: { canBeCancelled?: boolean }): Promise<any> {
     if (this.isElectron) {
-      return await window.electronAPI.indexFolder(folderPath);
+      return await window.electronAPI.indexFolder(folderPath, options);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Cancel indexation of a specific folder
+   * @param folderPath Path of the folder to cancel indexation for
+   */
+  async cancelFolderIndexation(folderPath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.cancelFolderIndexation(folderPath);
     }
     return { success: false, error: 'Not running in Electron' };
   }
@@ -151,10 +164,11 @@ export class ElectronWindowService {
   /**
    * Index multiple folders
    * @param folderPaths Array of folder paths to index
+   * @param options Optional indexing options, including cancellation support
    */
-  async indexAllFolders(folderPaths: string[]): Promise<any> {
+  async indexAllFolders(folderPaths: string[], options?: { canBeCancelled?: boolean }): Promise<any> {
     if (this.isElectron) {
-      return await window.electronAPI.indexAllFolders(folderPaths);
+      return await window.electronAPI.indexAllFolders(folderPaths, options);
     }
     return { success: false, error: 'Not running in Electron' };
   }
