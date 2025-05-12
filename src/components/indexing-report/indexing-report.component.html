@@ -1,0 +1,134 @@
+<div class="indexing-report-container">
+  <!-- Progress Card -->
+  <div class="card">
+    <div class="card-header">
+      <div class="d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Indexing Progress</h5>
+        <div class="status-badge" [ngClass]="{
+          'status-complete': progress.isComplete,
+          'status-paused': progress.isPaused,
+          'status-in-progress': !progress.isComplete && !progress.isPaused
+        }">
+          {{ getStatusText() }}
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <!-- Progress Bar -->
+      <div class="progress mb-3">
+        <div class="progress-bar"
+             [ngClass]="getProgressBarClass()"
+             role="progressbar"
+             [style.width.%]="progress.percentComplete"
+             [attr.aria-valuenow]="progress.percentComplete"
+             aria-valuemin="0"
+             aria-valuemax="100">
+          {{ progress.percentComplete }}%
+        </div>
+      </div>
+
+      <!-- Progress Stats -->
+      <div class="row mb-3">
+        <div class="col-md-6">
+          <div class="progress-stat">
+            <span class="stat-label">Files Processed:</span>
+            <span class="stat-value">{{ progress.processedFiles }} / {{ progress.totalFiles }}</span>
+          </div>
+          <div class="progress-stat">
+            <span class="stat-label">Files Skipped:</span>
+            <span class="stat-value">{{ progress.skippedFiles }}</span>
+          </div>
+          <div class="progress-stat">
+            <span class="stat-label">Files with Errors:</span>
+            <span class="stat-value">{{ progress.errorFiles }}</span>
+          </div>
+          <div class="progress-stat">
+            <span class="stat-label">Success Rate:</span>
+            <span class="stat-value">{{ getSuccessRateFormatted() }}</span>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="progress-stat">
+            <span class="stat-label">Elapsed Time:</span>
+            <span class="stat-value">{{ elapsedTimeFormatted }}</span>
+          </div>
+          <div class="progress-stat">
+            <span class="stat-label">Estimated Time Remaining:</span>
+            <span class="stat-value">{{ estimatedTimeRemainingFormatted }}</span>
+          </div>
+          <div class="progress-stat">
+            <span class="stat-label">Processing Rate:</span>
+            <span class="stat-value">{{ getProcessingRateFormatted() }} files/sec</span>
+          </div>
+          <div class="progress-stat">
+            <span class="stat-label">Current Folder:</span>
+            <span class="stat-value">{{ progress.currentFolder || 'N/A' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Current File -->
+      <div class="current-file mb-3" *ngIf="progress.currentFile && !progress.isComplete">
+        <span class="current-file-label">Currently Processing:</span>
+        <span class="current-file-value">{{ progress.currentFile }}</span>
+      </div>
+
+      <!-- Recommendations -->
+      <div class="recommendations mb-3" *ngIf="progress.recommendations && progress.recommendations.length > 0">
+        <h6>Recommendations:</h6>
+        <ul class="recommendation-list">
+          <li *ngFor="let recommendation of progress.recommendations">
+            {{ recommendation }}
+          </li>
+        </ul>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="action-buttons">
+        <button type="button" class="e-btn e-primary" *ngIf="!progress.isComplete && progress.isPaused" (click)="resumeIndexing()">
+          <i class="e-icons e-play"></i> Resume
+        </button>
+        <button type="button" class="e-btn e-warning" *ngIf="!progress.isComplete && !progress.isPaused" (click)="pauseIndexing()">
+          <i class="e-icons e-pause"></i> Pause
+        </button>
+        <button type="button" class="e-btn e-danger" *ngIf="!progress.isComplete" (click)="cancelIndexing()">
+          <i class="e-icons e-close"></i> Cancel
+        </button>
+        <button type="button" class="e-btn e-info" (click)="toggleDetailedReport()">
+          <i class="e-icons" [ngClass]="{'e-chevron-down': !showDetailedReport, 'e-chevron-up': showDetailedReport}"></i>
+          {{ showDetailedReport ? 'Hide Details' : 'Show Details' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detailed Report -->
+  <div class="detailed-report mt-3" *ngIf="showDetailedReport">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Detailed Indexing Report</h5>
+      </div>
+      <div class="card-body">
+        <div [innerHTML]="detailedReportHtml"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Errors -->
+  <div class="recent-errors mt-3" *ngIf="progress.recentErrors && progress.recentErrors.length > 0">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Recent Errors</h5>
+      </div>
+      <div class="card-body">
+        <div class="error-list">
+          <div class="error-item" *ngFor="let error of progress.recentErrors">
+            <div class="error-file">{{ error.file }}</div>
+            <div class="error-message">{{ error.error }}</div>
+            <div class="error-timestamp">{{ error.timestamp | date:'medium' }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

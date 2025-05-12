@@ -1,213 +1,500 @@
-import { Injectable } from '@angular/core';
-import { Observable, Subject, from, of } from 'rxjs';
-import { map, catchError, mergeMap, concatMap } from 'rxjs/operators';
+import { Injectable, OnDestroy } from '@angular/core';
+import { Observable, Subject, from, of, throwError } from 'rxjs';
+import { map, catchError, finalize, tap } from 'rxjs/operators';
 
 /**
- * Interface for a task to be executed by the worker pool
+ * Interface for a worker task
  */
 export interface WorkerTask<T, R> {
   id: string;
   data: T;
-  execute: (data: T) => Promise<R>;
-  priority?: number;
-}
-
-/**
- * Interface for a worker in the pool
- */
-interface Worker<T, R> {
-  id: string;
-  busy: boolean;
-  currentTask?: WorkerTask<T, R>;
-  execute: (task: WorkerTask<T, R>) => Promise<R>;
+  callback: (result: R) => void;
+  errorCallback: (error: any) => void;
 }
 
 /**
  * Service responsible for managing a pool of workers for parallel processing
- * This service is used to improve performance by allowing multiple files to be processed simultaneously
+ * This service is used to improve performance by distributing work across multiple threads
  */
 @Injectable({
   providedIn: 'root'
 })
-export class WorkerPoolService {
-  private workers: Worker<any, any>[] = [];
+export class WorkerPoolService implements OnDestroy {
+  private workers: Worker[] = [];
   private taskQueue: WorkerTask<any, any>[] = [];
-  private maxWorkers: number;
-  private taskResults = new Subject<{ taskId: string, result: any }>();
-  private taskErrors = new Subject<{ taskId: string, error: any }>();
+  private activeWorkers: Map<Worker, WorkerTask<any, any> | null> = new Map();
+  private isProcessing = false;
+  private memoryUsageInterval: any = null;
+  private memoryThresholdPercent = 80; // Default threshold at 80% of available memory
 
-  /**
-   * Observable that emits task results
-   */
-  public taskResults$ = this.taskResults.asObservable();
+  // Memory usage statistics
+  private memoryStats = {
+    totalMemory: 0,
+    freeMemory: 0,
+    usedMemory: 0,
+    usedPercent: 0,
+    lastChecked: new Date()
+  };
 
-  /**
-   * Observable that emits task errors
-   */
-  public taskErrors$ = this.taskErrors.asObservable();
+  // Subject for memory usage updates
+  private memoryUsageSubject = new Subject<{
+    totalMemory: number;
+    freeMemory: number;
+    usedMemory: number;
+    usedPercent: number;
+    lastChecked: Date;
+  }>();
+
+  // Observable for memory usage updates
+  public memoryUsage$ = this.memoryUsageSubject.asObservable();
 
   constructor() {
-    // Set the maximum number of workers based on the number of CPU cores
-    // For browsers, we'll use a fixed number since navigator.hardwareConcurrency is not always available
-    this.maxWorkers = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
-      ? navigator.hardwareConcurrency
+    // Initialize the worker pool
+    this.initializeWorkerPool();
+
+    // Start monitoring memory usage
+    this.startMemoryMonitoring();
+  }
+
+  ngOnDestroy(): void {
+    this.terminateWorkerPool();
+    this.stopMemoryMonitoring();
+  }
+
+  /**
+   * Initialize the worker pool with the optimal number of workers
+   */
+  private initializeWorkerPool(): void {
+    // Determine the optimal number of workers based on CPU cores
+    // Use navigator.hardwareConcurrency if available, otherwise default to 4
+    const optimalWorkerCount = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
+      ? Math.max(1, navigator.hardwareConcurrency - 1) // Leave one core for the main thread
       : 4;
 
-    console.log(`Initializing worker pool with ${this.maxWorkers} workers`);
+    console.log(`Initializing worker pool with ${optimalWorkerCount} workers`);
 
-    // Initialize the worker pool
-    this.initializeWorkers();
-  }
-
-  /**
-   * Initialize the worker pool
-   */
-  private initializeWorkers(): void {
-    for (let i = 0; i < this.maxWorkers; i++) {
-      this.workers.push({
-        id: `worker-${i}`,
-        busy: false,
-        execute: async (task: WorkerTask<any, any>) => {
-          try {
-            const result = await task.execute(task.data);
-            this.taskResults.next({ taskId: task.id, result });
-            return result;
-          } catch (error) {
-            this.taskErrors.next({ taskId: task.id, error });
-            throw error;
-          }
-        }
-      });
+    // Create the workers
+    for (let i = 0; i < optimalWorkerCount; i++) {
+      this.createWorker();
     }
   }
 
   /**
-   * Add a task to the worker pool
-   * @param task The task to add
-   * @returns Observable that emits the task result
+   * Create a new worker
    */
-  addTask<T, R>(task: WorkerTask<T, R>): Observable<R> {
-    // Add the task to the queue
-    this.taskQueue.push(task);
+  private createWorker(): Worker {
+    // Create a worker from a blob URL
+    const workerScript = `
+      self.onmessage = function(e) {
+        const { taskId, data, type } = e.data;
 
-    // Sort the queue by priority (higher priority first)
-    this.taskQueue.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        try {
+          let result;
 
-    // Try to execute tasks
-    this.executeTasks();
+          // Process the task based on its type
+          switch (type) {
+            case 'processFile':
+              result = processFile(data);
+              break;
+            case 'calculateEmbeddings':
+              result = calculateEmbeddings(data);
+              break;
+            case 'parseContent':
+              result = parseContent(data);
+              break;
+            default:
+              throw new Error('Unknown task type: ' + type);
+          }
 
-    // Return an observable that will emit the task result
-    return this.taskResults$.pipe(
-      map(result => {
-        if (result.taskId === task.id) {
-          return result.result as R;
+          // Send the result back to the main thread
+          self.postMessage({
+            taskId,
+            result,
+            error: null
+          });
+        } catch (error) {
+          // Send the error back to the main thread
+          self.postMessage({
+            taskId,
+            result: null,
+            error: error.message || 'Unknown error'
+          });
         }
-        throw new Error('Task result not found');
-      }),
-      catchError(error => {
-        console.error(`Error executing task ${task.id}:`, error);
-        throw error;
-      })
-    );
+      };
+
+      // Function to process a file
+      function processFile(data) {
+        const { content, options } = data;
+
+        // Simple content processing for demonstration
+        // In a real implementation, this would do more complex processing
+        const lines = content.split('\\n');
+        const wordCount = content.split(/\\s+/).length;
+        const charCount = content.length;
+
+        return {
+          lines: lines.length,
+          words: wordCount,
+          chars: charCount,
+          processed: true
+        };
+      }
+
+      // Function to calculate embeddings
+      function calculateEmbeddings(data) {
+        const { text, options } = data;
+
+        // Simulate embedding calculation
+        // In a real implementation, this would use a proper embedding algorithm
+        const embedding = new Array(options?.dimensions || 128).fill(0).map(() => Math.random());
+
+        return {
+          embedding,
+          dimensions: embedding.length
+        };
+      }
+
+      // Function to parse content
+      function parseContent(data) {
+        const { content, format } = data;
+
+        // Simple content parsing for demonstration
+        // In a real implementation, this would handle different formats
+        let parsed;
+
+        try {
+          if (format === 'json') {
+            parsed = JSON.parse(content);
+          } else if (format === 'csv') {
+            parsed = content.split('\\n').map(line => line.split(','));
+          } else {
+            // Default to text
+            parsed = { text: content };
+          }
+        } catch (error) {
+          throw new Error('Failed to parse content: ' + error.message);
+        }
+
+        return {
+          parsed,
+          format
+        };
+      }
+    `;
+
+    const blob = new Blob([workerScript], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
+
+    // Set up message handler
+    worker.onmessage = (e) => {
+      const { taskId, result, error } = e.data;
+
+      // Find the task
+      const task = this.activeWorkers.get(worker);
+
+      if (!task) {
+        console.error(`Received message for unknown task: ${taskId}`);
+        return;
+      }
+
+      // Handle the result or error
+      if (error) {
+        task.errorCallback(error);
+      } else {
+        task.callback(result);
+      }
+
+      // Mark the worker as free
+      this.activeWorkers.set(worker, null);
+
+      // Process the next task
+      this.processNextTask();
+    };
+
+    // Handle worker errors
+    worker.onerror = (error) => {
+      console.error('Worker error:', error);
+
+      // Find the task
+      const task = this.activeWorkers.get(worker);
+
+      if (task) {
+        task.errorCallback(error);
+
+        // Mark the worker as free
+        this.activeWorkers.set(worker, null);
+      }
+
+      // Process the next task
+      this.processNextTask();
+    };
+
+    // Add the worker to the pool
+    this.workers.push(worker);
+    this.activeWorkers.set(worker, null);
+
+    return worker;
   }
 
   /**
-   * Execute tasks in the queue
+   * Terminate the worker pool
    */
-  private executeTasks(): void {
-    // Find available workers
-    const availableWorkers = this.workers.filter(worker => !worker.busy);
+  private terminateWorkerPool(): void {
+    console.log(`Terminating worker pool with ${this.workers.length} workers`);
 
-    // Assign tasks to available workers
-    while (availableWorkers.length > 0 && this.taskQueue.length > 0) {
-      const worker = availableWorkers.pop();
-      const task = this.taskQueue.shift();
+    // Terminate all workers
+    for (const worker of this.workers) {
+      worker.terminate();
+    }
 
-      if (worker && task) {
-        worker.busy = true;
-        worker.currentTask = task;
+    // Clear the arrays
+    this.workers = [];
+    this.activeWorkers.clear();
+    this.taskQueue = [];
+    this.isProcessing = false;
+  }
 
-        console.log(`Worker ${worker.id} executing task ${task.id}`);
+  /**
+   * Submit a task to the worker pool
+   * @param type Type of task to perform
+   * @param data Data for the task
+   * @returns Observable of the task result
+   */
+  submitTask<T, R>(type: string, data: T): Observable<R> {
+    return new Observable<R>(subscriber => {
+      // Create a task
+      const task: WorkerTask<T, R> = {
+        id: `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        data,
+        callback: (result) => {
+          subscriber.next(result);
+          subscriber.complete();
+        },
+        errorCallback: (error) => {
+          subscriber.error(error);
+        }
+      };
 
-        worker.execute(task)
-          .catch(error => {
-            console.error(`Error executing task ${task.id}:`, error);
-          })
-          .finally(() => {
-            worker.busy = false;
-            worker.currentTask = undefined;
+      // Add the task to the queue
+      this.taskQueue.push(task);
 
-            // Try to execute more tasks
-            this.executeTasks();
-          });
+      // Start processing if not already
+      if (!this.isProcessing) {
+        this.processNextTask();
+      }
+
+      // Return cleanup function
+      return () => {
+        // Remove the task from the queue if it hasn't started yet
+        const index = this.taskQueue.findIndex(t => t.id === task.id);
+        if (index !== -1) {
+          this.taskQueue.splice(index, 1);
+        }
+      };
+    });
+  }
+
+  /**
+   * Process the next task in the queue
+   */
+  private processNextTask(): void {
+    // Skip if no tasks or already processing
+    if (this.taskQueue.length === 0) {
+      this.isProcessing = false;
+      return;
+    }
+
+    this.isProcessing = true;
+
+    // Check if memory usage is too high
+    if (this.memoryStats.usedPercent > this.memoryThresholdPercent) {
+      console.log(`Memory usage is high (${this.memoryStats.usedPercent.toFixed(2)}%), pausing task processing`);
+
+      // Wait for memory to free up
+      setTimeout(() => {
+        this.updateMemoryUsage().then(() => {
+          this.processNextTask();
+        });
+      }, 1000);
+
+      return;
+    }
+
+    // Find a free worker
+    const freeWorker = this.findFreeWorker();
+
+    if (!freeWorker) {
+      // No free workers, wait for one to become available
+      return;
+    }
+
+    // Get the next task
+    const task = this.taskQueue.shift();
+
+    if (!task) {
+      this.isProcessing = false;
+      return;
+    }
+
+    // Assign the task to the worker
+    this.activeWorkers.set(freeWorker, task);
+
+    // Send the task to the worker
+    freeWorker.postMessage({
+      taskId: task.id,
+      data: task.data,
+      type: task.type
+    });
+  }
+
+  /**
+   * Find a free worker
+   * @returns A free worker, or null if none are available
+   */
+  private findFreeWorker(): Worker | null {
+    for (const [worker, task] of this.activeWorkers.entries()) {
+      if (task === null) {
+        return worker;
       }
     }
+
+    return null;
   }
 
   /**
-   * Execute multiple tasks in parallel
-   * @param tasks Array of tasks to execute
-   * @param concurrency Maximum number of tasks to execute in parallel (defaults to the number of workers)
-   * @returns Observable that emits the results of all tasks
+   * Start monitoring memory usage
    */
-  executeAll<T, R>(tasks: WorkerTask<T, R>[], concurrency?: number): Observable<R[]> {
-    const results: R[] = [];
-    const maxConcurrency = concurrency || this.maxWorkers;
+  private startMemoryMonitoring(): void {
+    // Update memory usage immediately
+    this.updateMemoryUsage();
 
-    // Use mergeMap to execute tasks in parallel with limited concurrency
-    return from(tasks).pipe(
-      mergeMap(task => this.addTask(task), maxConcurrency),
-      map(result => {
-        results.push(result);
-        return results;
-      }),
-      catchError(error => {
-        console.error('Error executing tasks:', error);
-        throw error;
-      })
-    );
+    // Set up interval to check memory usage
+    this.memoryUsageInterval = setInterval(() => {
+      this.updateMemoryUsage();
+    }, 10000); // Check every 10 seconds
   }
 
   /**
-   * Execute multiple tasks sequentially
-   * @param tasks Array of tasks to execute
-   * @returns Observable that emits the results of all tasks
+   * Stop monitoring memory usage
    */
-  executeSequentially<T, R>(tasks: WorkerTask<T, R>[]): Observable<R[]> {
-    const results: R[] = [];
-
-    // Use concatMap to execute tasks sequentially
-    return from(tasks).pipe(
-      concatMap(task => this.addTask(task)),
-      map(result => {
-        results.push(result);
-        return results;
-      }),
-      catchError(error => {
-        console.error('Error executing tasks sequentially:', error);
-        throw error;
-      })
-    );
+  private stopMemoryMonitoring(): void {
+    if (this.memoryUsageInterval) {
+      clearInterval(this.memoryUsageInterval);
+      this.memoryUsageInterval = null;
+    }
   }
 
   /**
-   * Get the number of active workers
+   * Update memory usage statistics
    */
-  getActiveWorkerCount(): number {
-    return this.workers.filter(worker => worker.busy).length;
+  private async updateMemoryUsage(): Promise<void> {
+    try {
+      // Use performance.memory if available (Chrome only)
+      if (window.performance && (performance as any).memory) {
+        const memory = (performance as any).memory;
+
+        this.memoryStats = {
+          totalMemory: memory.jsHeapSizeLimit,
+          usedMemory: memory.usedJSHeapSize,
+          freeMemory: memory.jsHeapSizeLimit - memory.usedJSHeapSize,
+          usedPercent: (memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100,
+          lastChecked: new Date()
+        };
+      } else {
+        // Fallback to navigator.deviceMemory if available
+        if (navigator && (navigator as any).deviceMemory) {
+          const totalMemory = (navigator as any).deviceMemory * 1024 * 1024 * 1024; // Convert GB to bytes
+
+          // Estimate used memory (very rough approximation)
+          const usedMemory = totalMemory * 0.5; // Assume 50% usage
+
+          this.memoryStats = {
+            totalMemory,
+            usedMemory,
+            freeMemory: totalMemory - usedMemory,
+            usedPercent: 50, // Fixed at 50%
+            lastChecked: new Date()
+          };
+        } else {
+          // No memory info available, use defaults
+          this.memoryStats = {
+            totalMemory: 4 * 1024 * 1024 * 1024, // Assume 4GB
+            usedMemory: 2 * 1024 * 1024 * 1024, // Assume 2GB used
+            freeMemory: 2 * 1024 * 1024 * 1024, // Assume 2GB free
+            usedPercent: 50, // Fixed at 50%
+            lastChecked: new Date()
+          };
+        }
+      }
+
+      // Emit memory usage update
+      this.memoryUsageSubject.next({ ...this.memoryStats });
+
+    } catch (error) {
+      console.error('Error updating memory usage:', error);
+    }
   }
 
   /**
-   * Get the number of tasks in the queue
+   * Set the memory threshold percentage
+   * @param percent Percentage threshold (0-100)
    */
-  getQueueLength(): number {
-    return this.taskQueue.length;
+  setMemoryThreshold(percent: number): void {
+    this.memoryThresholdPercent = Math.max(0, Math.min(100, percent));
   }
 
   /**
-   * Clear the task queue
+   * Get the current memory usage statistics
+   * @returns Memory usage statistics
    */
-  clearQueue(): void {
-    this.taskQueue = [];
+  getMemoryUsage(): {
+    totalMemory: number;
+    freeMemory: number;
+    usedMemory: number;
+    usedPercent: number;
+    lastChecked: Date;
+  } {
+    return { ...this.memoryStats };
+  }
+
+  /**
+   * Process a file using a worker
+   * @param content File content
+   * @param options Processing options
+   * @returns Observable of the processing result
+   */
+  processFile(content: string, options?: any): Observable<{
+    lines: number;
+    words: number;
+    chars: number;
+    processed: boolean;
+  }> {
+    return this.submitTask('processFile', { content, options });
+  }
+
+  /**
+   * Calculate embeddings for text using a worker
+   * @param text Text to embed
+   * @param options Embedding options
+   * @returns Observable of the embedding result
+   */
+  calculateEmbeddings(text: string, options?: { dimensions?: number }): Observable<{
+    embedding: number[];
+    dimensions: number;
+  }> {
+    return this.submitTask('calculateEmbeddings', { text, options });
+  }
+
+  /**
+   * Parse content using a worker
+   * @param content Content to parse
+   * @param format Format of the content (json, csv, etc.)
+   * @returns Observable of the parsing result
+   */
+  parseContent(content: string, format: string): Observable<{
+    parsed: any;
+    format: string;
+  }> {
+    return this.submitTask('parseContent', { content, format });
   }
 }
