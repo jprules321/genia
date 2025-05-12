@@ -10,6 +10,7 @@ export interface FolderIndexingStats {
   totalFiles: number;
   progress?: number;
   status?: 'indexing' | 'indexed' | 'stopped';
+  filesInQueue?: number; // Number of files waiting to be saved to the database
 }
 
 /**
@@ -80,7 +81,8 @@ export class FolderStatisticsService {
   updateFolderStats(folderId: string, stats: Partial<FolderIndexingStats>): void {
     const currentStats = this._folderStats.get(folderId) || {
       indexedFiles: 0,
-      totalFiles: 0
+      totalFiles: 0,
+      filesInQueue: 0
     };
 
     const updatedStats = {
@@ -88,11 +90,21 @@ export class FolderStatisticsService {
       ...stats
     };
 
-    // Calculate progress if not provided
-    if (stats.indexedFiles !== undefined || stats.totalFiles !== undefined) {
-      updatedStats.progress = updatedStats.totalFiles > 0
-        ? Math.min(100, Math.round((updatedStats.indexedFiles / updatedStats.totalFiles) * 100))
-        : 0;
+    // Calculate progress if not provided, accounting for files in queue
+    if (stats.indexedFiles !== undefined || stats.totalFiles !== undefined || stats.filesInQueue !== undefined) {
+      const filesInQueue = updatedStats.filesInQueue || 0;
+
+      // If there are files in the queue, cap progress at 99%
+      if (filesInQueue > 0) {
+        updatedStats.progress = updatedStats.totalFiles > 0
+          ? Math.min(99, Math.round((updatedStats.indexedFiles / updatedStats.totalFiles) * 100))
+          : 0;
+      } else {
+        // No files in queue, progress can reach 100%
+        updatedStats.progress = updatedStats.totalFiles > 0
+          ? Math.min(100, Math.round((updatedStats.indexedFiles / updatedStats.totalFiles) * 100))
+          : 0;
+      }
     }
 
     this._folderStats.set(folderId, updatedStats);
@@ -139,13 +151,26 @@ export class FolderStatisticsService {
     const currentStats = this._folderStats.get(folderId);
     if (currentStats) {
       const indexedFiles = currentStats.indexedFiles + count;
+      const filesInQueue = currentStats.filesInQueue || 0;
+
+      // Calculate progress, accounting for files in queue
+      let progress = 0;
+      if (currentStats.totalFiles > 0) {
+        // If there are files in the queue, cap progress at 99%
+        if (filesInQueue > 0) {
+          progress = Math.min(99, Math.round((indexedFiles / currentStats.totalFiles) * 100));
+        } else {
+          // No files in queue, progress can reach 100%
+          progress = Math.min(100, Math.round((indexedFiles / currentStats.totalFiles) * 100));
+        }
+      }
+
       const updatedStats = {
         ...currentStats,
         indexedFiles,
-        progress: currentStats.totalFiles > 0
-          ? Math.min(100, Math.round((indexedFiles / currentStats.totalFiles) * 100))
-          : 0
+        progress
       };
+
       this._folderStats.set(folderId, updatedStats);
       this.saveFolderStats();
       this._folderStatsSubject.next(this._folderStats);

@@ -11,6 +11,7 @@ export interface IndexationProgressUpdate {
   status?: 'indexing' | 'indexed' | 'stopped';
   errors?: number;
   currentFile?: string;
+  filesInQueue?: number; // Number of files waiting to be saved to the database
 }
 
 // Update Window interface to include your electronAPI methods

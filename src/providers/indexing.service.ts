@@ -170,8 +170,11 @@ export class IndexingService implements OnDestroy {
    * @param update The progress update
    */
   private handleIndexationProgressUpdate(update: IndexationProgressUpdate) {
-    // Determine status based on progress and status field
-    const inProgress = update.progress < 100 && update.status !== 'stopped';
+    // Check if we have files in queue information
+    const filesInQueue = update.filesInQueue !== undefined ? update.filesInQueue : 0;
+
+    // Determine status based on progress, status field, and files in queue
+    const inProgress = (update.progress < 100 || filesInQueue > 0) && update.status !== 'stopped';
 
     // Update the indexing status
     if (inProgress) {
@@ -180,7 +183,14 @@ export class IndexingService implements OnDestroy {
         update.progress,
         update.currentFile,
         update.indexedFiles,
-        update.totalFiles
+        update.totalFiles,
+        undefined, // successfulFiles
+        undefined, // failedFiles
+        undefined, // skippedFiles
+        {
+          // Include files in queue information for more accurate progress reporting
+          filesInQueue: filesInQueue
+        }
       );
 
       // Update error count if available
@@ -196,7 +206,8 @@ export class IndexingService implements OnDestroy {
     // Update the folder statistics
     this.folderStatisticsService.updateFolderStats(update.folderId, {
       indexedFiles: update.indexedFiles,
-      totalFiles: update.totalFiles
+      totalFiles: update.totalFiles,
+      filesInQueue: filesInQueue
     });
 
     // Update folder status
@@ -205,8 +216,8 @@ export class IndexingService implements OnDestroy {
       : (inProgress ? 'indexing' : 'indexed');
     this.folderStatisticsService.setFolderStatus(update.folderId, folderStatus);
 
-    // If indexation is complete (progress = 100%), make sure we persist the final state
-    if (update.progress === 100) {
+    // If indexation is complete (progress = 100% and no files in queue), make sure we persist the final state
+    if (update.progress === 100 && filesInQueue === 0) {
       // Give it a short delay to ensure all updates are processed
       setTimeout(() => {
         // Ensure the status is saved with the correct progress

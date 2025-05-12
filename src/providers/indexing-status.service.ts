@@ -26,6 +26,7 @@ export interface IndexingStatistics {
   successfulFiles: number;
   failedFiles: number;
   skippedFiles: number;
+  filesInQueue: number; // Number of files waiting to be saved to the database
 
   // Performance metrics
   processingSpeed: number; // files per second
@@ -356,7 +357,8 @@ export class IndexingStatusService {
       batchesSuccessful?: number,
       batchesFailed?: number,
       averageFileSize?: number,
-      averageProcessingTime?: number
+      averageProcessingTime?: number,
+      filesInQueue?: number
     }
   ): void {
     // Only update progress if we're in an active state
@@ -371,14 +373,28 @@ export class IndexingStatusService {
     failedFiles = failedFiles ?? this._status.failedFiles ?? 0;
     skippedFiles = skippedFiles ?? this._status.skippedFiles ?? 0;
 
+    // Get files in queue information
+    const filesInQueue = batchStats?.filesInQueue ?? 0;
+
     // Calculate progress if not provided
     if (progress === undefined && totalFiles > 0) {
       // Calculate progress based on processed, skipped, and failed files
       const totalProcessed = processedFiles + skippedFiles;
-      progress = Math.min(100, Math.max(0, (totalProcessed / totalFiles) * 100));
+
+      // If there are files in the queue, cap progress at 99%
+      if (filesInQueue > 0) {
+        progress = Math.min(99, Math.max(0, (totalProcessed / totalFiles) * 100));
+      } else {
+        progress = Math.min(100, Math.max(0, (totalProcessed / totalFiles) * 100));
+      }
     } else if (progress === undefined) {
       // If we can't calculate progress, use the existing value or 0
       progress = this._status.progress ?? 0;
+    }
+
+    // If progress is provided but there are files in queue, ensure it doesn't reach 100%
+    if (progress !== undefined && filesInQueue > 0) {
+      progress = Math.min(99, progress);
     }
 
     // Calculate time metrics
@@ -414,6 +430,7 @@ export class IndexingStatusService {
       successfulFiles,
       failedFiles,
       skippedFiles,
+      filesInQueue: batchStats?.filesInQueue ?? 0,
 
       processingSpeed,
       averageFileSize: batchStats?.averageFileSize ?? 0,
@@ -470,6 +487,11 @@ export class IndexingStatusService {
 
     let message = `Processed ${totalProcessed} of ${stats.totalFiles} files (${progressPercent}%)`;
 
+    // Add information about files in queue
+    if (stats.filesInQueue > 0) {
+      message += `, ${stats.filesInQueue} files waiting to be saved`;
+    }
+
     if (stats.skippedFiles > 0) {
       message += `, skipped ${stats.skippedFiles}`;
     }
@@ -521,6 +543,7 @@ export class IndexingStatusService {
       successfulFiles: this._status.successfulFiles || 0,
       failedFiles: this._status.failedFiles || 0,
       skippedFiles: this._status.skippedFiles || 0,
+      filesInQueue: 0,
       processingSpeed: 0,
       averageFileSize: 0,
       averageProcessingTime: 0,

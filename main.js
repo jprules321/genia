@@ -1407,20 +1407,28 @@ if (!gotTheLock) {
 
               // Throttle progress updates to avoid overwhelming the UI
               if (mainWindow && totalFiles > 0) {
-                const progress = Math.round((indexedFiles / totalFiles) * 100);
+                // Count files in save queue for this folder
+                const filesInQueue = fileSaveQueue.filter(file => file.folderPath === rootPath).length;
+
+                // Calculate progress based on indexed files and files in queue
+                // Files in queue are counted as "in progress" and contribute partially to the progress
+                const processedFiles = indexedFiles;
+                const remainingFiles = totalFiles - processedFiles;
+                const adjustedProgress = Math.min(99, Math.round((processedFiles / totalFiles) * 100));
 
                 // Only send progress updates if significant progress has been made (at least 1% change)
                 // or if it's been a while since the last update
                 const now = Date.now();
-                if (progress > lastProgressUpdate || now - lastProgressUpdate >= 500) {
-                  lastProgressUpdate = progress;
+                if (adjustedProgress !== lastProgressUpdate || now - lastProgressUpdate >= 500) {
+                  lastProgressUpdate = adjustedProgress;
                   throttleProgressUpdates(mainWindow, {
                     folderId,
                     folderPath: rootPath,
-                    indexedFiles,
+                    indexedFiles: processedFiles,
                     totalFiles,
-                    progress,
-                    status: 'indexing'
+                    progress: adjustedProgress,
+                    status: 'indexing',
+                    filesInQueue
                   });
                 }
               }
@@ -1512,14 +1520,77 @@ if (!gotTheLock) {
 
         // Send final progress update
         if (mainWindow) {
+          // Count any remaining files in the save queue
+          const filesInQueue = fileSaveQueue.filter(file => file.folderPath === folderPath).length;
+
+          // Only set status to 'indexed' if there are no files left in the queue
+          const status = filesInQueue > 0 ? 'indexing' : 'indexed';
+
+          // Calculate final progress - only 100% if no files are in queue
+          const finalProgress = (filesInQueue === 0 && totalFiles > 0) ?
+            100 :
+            Math.min(99, totalFiles > 0 ? Math.round((indexedFiles / totalFiles) * 100) : 99);
+
           mainWindow.webContents.send('indexation-progress', {
             folderId,
             folderPath,
             indexedFiles,
             totalFiles,
-            progress: totalFiles > 0 ? Math.round((indexedFiles / totalFiles) * 100) : 100,
-            status: 'indexed'
+            progress: finalProgress,
+            status: status,
+            filesInQueue
           });
+
+          // If there are still files in the queue, set up a timer to send periodic updates
+          // until the queue is empty
+          if (filesInQueue > 0) {
+            const checkQueueInterval = setInterval(() => {
+              const remainingFiles = fileSaveQueue.filter(file => file.folderPath === folderPath).length;
+
+              if (remainingFiles === 0) {
+                // Queue is now empty, send final 100% update
+                mainWindow.webContents.send('indexation-progress', {
+                  folderId,
+                  folderPath,
+                  indexedFiles,
+                  totalFiles,
+                  progress: 100,
+                  status: 'indexed',
+                  filesInQueue: 0
+                });
+
+                clearInterval(checkQueueInterval);
+              } else {
+                // Queue still has files, send progress update
+                mainWindow.webContents.send('indexation-progress', {
+                  folderId,
+                  folderPath,
+                  indexedFiles,
+                  totalFiles,
+                  progress: 99,
+                  status: 'indexing',
+                  filesInQueue: remainingFiles
+                });
+              }
+            }, 1000); // Check every second
+
+            // Ensure the interval is cleared after a maximum time to prevent memory leaks
+            setTimeout(() => {
+              clearInterval(checkQueueInterval);
+
+              // Force a final update if we're timing out
+              const finalRemainingFiles = fileSaveQueue.filter(file => file.folderPath === folderPath).length;
+              mainWindow.webContents.send('indexation-progress', {
+                folderId,
+                folderPath,
+                indexedFiles,
+                totalFiles,
+                progress: finalRemainingFiles === 0 ? 100 : 99,
+                status: finalRemainingFiles === 0 ? 'indexed' : 'indexing',
+                filesInQueue: finalRemainingFiles
+              });
+            }, 60000); // Maximum 60 seconds
+          }
         }
 
         // Remove from folders being indexed
