@@ -311,23 +311,25 @@ export class HealthCheckService {
       () => {
         const startTime = Date.now();
 
-        // Check if file system is accessible by showing an open dialog
-        // but cancelling it immediately
-        const options = {
-          properties: ['openDirectory'],
-          defaultPath: '.',
-          title: 'Health Check (Cancel This)',
-          buttonLabel: 'Cancel'
-        };
-
-        return from(this.electronWindowService.showOpenDialog(options)).pipe(
+        // Check if file system is accessible by getting the database path
+        // This is non-intrusive and doesn't open any dialogs
+        return from(this.electronWindowService.getDatabasePath()).pipe(
           map((result: any) => {
-            // If we can show the dialog, the file system is accessible
-            // (even if the user cancels it)
+            if (!result.success) {
+              return {
+                component: 'fileSystem',
+                status: HealthStatus.UNHEALTHY,
+                details: { error: result.error || 'Could not access file system' },
+                timestamp: new Date(),
+                responseTime: Date.now() - startTime
+              };
+            }
+
+            // If we can get the database path, the file system is accessible
             return {
               component: 'fileSystem',
               status: HealthStatus.HEALTHY,
-              details: { dialogShown: true },
+              details: { dbPath: result.dbPath, dbDir: result.dbDir },
               timestamp: new Date(),
               responseTime: Date.now() - startTime
             };

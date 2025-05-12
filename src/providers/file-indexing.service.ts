@@ -2,7 +2,8 @@ import { Injectable } from '@angular/core';
 import { Observable, from, of } from 'rxjs';
 import { map, catchError } from 'rxjs/operators';
 import { ElectronWindowService } from './electron-window.service';
-import { IndexationErrorType, CancellationToken } from './indexing.service';
+import { CancellationToken } from './indexing.service';
+import { IndexationErrorType } from './indexing-error.service';
 
 /**
  * Service responsible for the actual indexing of files

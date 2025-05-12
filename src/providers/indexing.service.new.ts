@@ -14,10 +14,10 @@ import { FolderWatchingService } from './folder-watching.service';
 import { IndexingIPCService } from './indexing-ipc.service';
 
 // Re-export interfaces and classes from other services for backward compatibility
-export type { IndexingStatus } from './indexing-status.service';
-export type { FolderIndexingStats } from './folder-statistics.service';
-export type { IndexationErrorType, IndexationError } from './indexing-error.service';
-export type { IndexedFile } from './index-database.service';
+export { IndexingStatus } from './indexing-status.service';
+export { FolderIndexingStats } from './folder-statistics.service';
+export { IndexationErrorType, IndexationError } from './indexing-error.service';
+export { IndexedFile } from './index-database.service';
 
 /**
  * Cancellation token for long-running operations
@@ -482,23 +482,6 @@ export class IndexingService implements OnDestroy {
    */
   getAllFolderIndexingStats$(): Observable<Map<string, FolderIndexingStats>> {
     return this.folderStatisticsService.getAllFolderStats$();
-  }
-
-  /**
-   * Update statistics for a folder
-   * @param folderId The ID of the folder
-   * @param stats The statistics to update
-   */
-  updateFolderIndexingStats(folderId: string, stats: Partial<FolderIndexingStats>): void {
-    this.folderStatisticsService.updateFolderStats(folderId, stats);
-  }
-
-  /**
-   * Remove statistics for a folder
-   * @param folderId The ID of the folder
-   */
-  removeFolderIndexingStats(folderId: string): void {
-    this.folderStatisticsService.removeFolderStats(folderId);
   }
 
   /**

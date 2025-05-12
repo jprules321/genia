@@ -123,9 +123,9 @@ export class FileSystemService {
 
   /**
    * Start watching multiple folders
-   * @param folderPaths Array of folder paths to watch
+   * @param folderPaths Array of folder objects with id and path properties
    */
-  startWatchingFolders(folderPaths: string[]): Observable<boolean> {
+  startWatchingFolders(folderPaths: { id: string; path: string; }[]): Observable<boolean> {
     return from(this.electronWindowService.startWatchingFolders(folderPaths)).pipe(
       map(result => {
         if (result.success) {

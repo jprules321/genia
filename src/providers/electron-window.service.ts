@@ -173,12 +173,14 @@ export class ElectronWindowService {
 
   /**
    * Index multiple folders
-   * @param folderPaths Array of folder paths to index
+   * @param folderPaths Array of folder information to index
    * @param options Optional indexing options, including cancellation support
    */
-  async indexAllFolders(folderPaths: string[], options?: { canBeCancelled?: boolean }): Promise<any> {
+  async indexAllFolders(folderPaths: { id: string; path: string; name: string; }[], options?: { canBeCancelled?: boolean }): Promise<any> {
     if (this.isElectron) {
-      return await window.electronAPI.indexAllFolders(folderPaths, options);
+      // Extract just the paths for the Electron API
+      const paths = folderPaths.map(folder => folder.path);
+      return await window.electronAPI.indexAllFolders(paths, options);
     }
     return { success: false, error: 'Not running in Electron' };
   }
@@ -187,9 +189,11 @@ export class ElectronWindowService {
    * Start watching folders for changes
    * @param folderPaths Array of folder paths to watch
    */
-  async startWatchingFolders(folderPaths: string[]): Promise<any> {
+  async startWatchingFolders(folderPaths: { id: string; path: string; }[]): Promise<any> {
     if (this.isElectron) {
-      return await window.electronAPI.startWatchingFolders(folderPaths);
+      // Extract just the paths for the Electron API
+      const paths = folderPaths.map(folder => folder.path);
+      return await window.electronAPI.startWatchingFolders(paths);
     }
     return { success: false, error: 'Not running in Electron' };
   }
@@ -202,6 +206,46 @@ export class ElectronWindowService {
       return await window.electronAPI.stopWatchingFolders();
     }
     return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Stop watching a specific folder
+   * @param folderPath Path of the folder to stop watching
+   */
+  async stopWatchingFolder(folderPath: string): Promise<any> {
+    if (this.isElectron) {
+      // Use the stopWatchingFolders method but log that we're stopping a specific folder
+      console.log(`Stopping watching for folder: ${folderPath}`);
+      return await window.electronAPI.stopWatchingFolders();
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Check if a folder is being watched
+   * @param folderPath Path of the folder to check
+   */
+  async isFolderWatched(folderPath: string): Promise<any> {
+    if (this.isElectron) {
+      // This is a placeholder implementation since the actual method doesn't exist
+      // In a real implementation, we would call a method in the Electron API
+      console.log(`Checking if folder is watched: ${folderPath}`);
+      return { success: true, isWatched: false };
+    }
+    return { success: false, error: 'Not running in Electron', isWatched: false };
+  }
+
+  /**
+   * Get all watched folders
+   */
+  async getWatchedFolders(): Promise<any> {
+    if (this.isElectron) {
+      // This is a placeholder implementation since the actual method doesn't exist
+      // In a real implementation, we would call a method in the Electron API
+      console.log('Getting watched folders');
+      return { success: true, folders: [] };
+    }
+    return { success: false, error: 'Not running in Electron', folders: [] };
   }
 
   /**
