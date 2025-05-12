@@ -1114,6 +1114,9 @@ if (!gotTheLock) {
   let fileSaveTimer = null;
   const FILE_SAVE_BATCH_DELAY = 1000; // 1 second
 
+  // Array of resolver functions for promises waiting for the queue to be empty
+  let processQueueEmptyResolvers = [];
+
   // Memory management for file save queue
   let currentQueueSizeBytes = 0;
   const MAX_QUEUE_SIZE_MB = 100; // 100MB max queue size
@@ -1207,6 +1210,9 @@ if (!gotTheLock) {
   async function processFileSaveQueue() {
     if (fileSaveQueue.length === 0) {
       fileSaveTimer = null;
+      // Notify any waiting promises that the queue is empty
+      processQueueEmptyResolvers.forEach(resolver => resolver());
+      processQueueEmptyResolvers = [];
       return;
     }
 
@@ -1251,6 +1257,9 @@ if (!gotTheLock) {
         fileSaveTimer = setTimeout(processFileSaveQueue, FILE_SAVE_BATCH_DELAY);
       } else {
         fileSaveTimer = null;
+        // Notify any waiting promises that the queue is empty
+        processQueueEmptyResolvers.forEach(resolver => resolver());
+        processQueueEmptyResolvers = [];
       }
       return;
     }
@@ -1299,6 +1308,10 @@ if (!gotTheLock) {
     } else {
       fileSaveTimer = null;
       console.log(`[Reliability] All files processed, queue is empty`);
+
+      // Notify any waiting promises that the queue is empty
+      processQueueEmptyResolvers.forEach(resolver => resolver());
+      processQueueEmptyResolvers = [];
     }
   }
 
@@ -1903,6 +1916,67 @@ if (!gotTheLock) {
     }
   }
 
+  // Function to wait for the file save queue to be empty for a specific folder
+  async function waitForQueueEmpty(folderPath, timeout = 60000) {
+    console.log(`Waiting for file save queue to be empty for folder: ${folderPath}`);
+
+    // Check if there are any files in the queue for this folder
+    const filesInQueue = fileSaveQueue.filter(file => {
+      return file.folderPath === folderPath;
+    }).length;
+
+    if (filesInQueue === 0) {
+      console.log(`No files in queue for folder: ${folderPath}, continuing immediately`);
+      return true;
+    }
+
+    console.log(`Found ${filesInQueue} files in queue for folder: ${folderPath}, waiting for them to be processed...`);
+
+    // Create a promise that will be resolved when the queue is empty
+    return new Promise((resolve, reject) => {
+      // Set a timeout to prevent waiting indefinitely
+      const timeoutId = setTimeout(() => {
+        // Remove this resolver from the array
+        processQueueEmptyResolvers = processQueueEmptyResolvers.filter(r => r !== resolver);
+
+        // Check if there are still files in the queue for this folder
+        const remainingFiles = fileSaveQueue.filter(file => {
+          return file.folderPath === folderPath;
+        }).length;
+
+        if (remainingFiles > 0) {
+          console.warn(`Timeout waiting for queue to be empty for folder: ${folderPath}, ${remainingFiles} files still in queue`);
+          // Resolve anyway to prevent blocking
+          resolve(false);
+        } else {
+          console.log(`Queue is now empty for folder: ${folderPath} (timeout check)`);
+          resolve(true);
+        }
+      }, timeout);
+
+      // Create a resolver function that will be called when the queue is empty
+      const resolver = () => {
+        // Check if there are still files in the queue for this folder
+        const remainingFiles = fileSaveQueue.filter(file => {
+          return file.folderPath === folderPath;
+        }).length;
+
+        if (remainingFiles === 0) {
+          // Clear the timeout
+          clearTimeout(timeoutId);
+          console.log(`Queue is now empty for folder: ${folderPath}`);
+          resolve(true);
+        }
+      };
+
+      // Add the resolver to the array
+      processQueueEmptyResolvers.push(resolver);
+
+      // Check immediately in case the queue is already empty
+      resolver();
+    });
+  }
+
   // Handler for indexing a single folder and all its subdirectories (deep indexing)
   ipcMain.handle('index-folder', async (event, folderPath) => {
     try {
@@ -1951,6 +2025,11 @@ if (!gotTheLock) {
       try {
         // Index the directory with progress tracking
         const { results, indexedFiles } = await indexDirectory(folderPath, folderId, folderPath, totalFiles, 0, mainWindow);
+
+        // Wait for the file save queue to be empty for this folder before completing
+        console.log(`Directory indexing completed, waiting for file save queue to be empty for folder: ${folderPath}`);
+        await waitForQueueEmpty(folderPath);
+        console.log(`File save queue is now empty for folder: ${folderPath}, completing indexation`);
 
         // Send final progress update
         if (mainWindow) {
