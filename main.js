@@ -1112,128 +1112,18 @@ if (!gotTheLock) {
   // Queue for batching file save messages to renderer
   let fileSaveQueue = [];
   let fileSaveTimer = null;
+  const FILE_SAVE_BATCH_SIZE = 250;
   const FILE_SAVE_BATCH_DELAY = 1000; // 1 second
-
-  // Array of resolver functions for promises waiting for the queue to be empty
-  let processQueueEmptyResolvers = [];
-
-  // Memory management for file save queue
-  let currentQueueSizeBytes = 0;
-  const MAX_QUEUE_SIZE_MB = 100; // 100MB max queue size
-  const MAX_QUEUE_SIZE_BYTES = MAX_QUEUE_SIZE_MB * 1024 * 1024;
-
-  // Function to estimate the size of a file in memory
-  function estimateFileSizeInMemory(file) {
-    // Base size for the file object structure
-    let estimatedSize = 1000; // 1KB for object overhead
-
-    // Add size of content if present
-    if (file.content) {
-      // String size in JavaScript is approximately 2 bytes per character (UTF-16)
-      estimatedSize += file.content.length * 2;
-    }
-
-    // Add size of other string properties
-    if (file.path) estimatedSize += file.path.length * 2;
-    if (file.filename) estimatedSize += file.filename.length * 2;
-    if (file.folderPath) estimatedSize += file.folderPath.length * 2;
-
-    return estimatedSize;
-  }
-
-  // Function to get current memory usage
-  function getMemoryUsage() {
-    try {
-      const memoryUsage = process.memoryUsage();
-      return {
-        rss: memoryUsage.rss, // Resident Set Size - total memory allocated
-        heapTotal: memoryUsage.heapTotal, // Total size of the allocated heap
-        heapUsed: memoryUsage.heapUsed, // Actual memory used during execution
-        external: memoryUsage.external, // Memory used by C++ objects bound to JavaScript
-        queueSize: currentQueueSizeBytes
-      };
-    } catch (error) {
-      console.error('Error getting memory usage:', error);
-      return {
-        rss: 0,
-        heapTotal: 0,
-        heapUsed: 0,
-        external: 0,
-        queueSize: currentQueueSizeBytes
-      };
-    }
-  }
-
-  // Function to log memory usage
-  function logMemoryUsage(operation = 'Current') {
-    const usage = getMemoryUsage();
-    console.log(`[Memory] ${operation}: RSS: ${(usage.rss / 1024 / 1024).toFixed(2)}MB, Heap: ${(usage.heapUsed / 1024 / 1024).toFixed(2)}MB, Queue: ${(usage.queueSize / 1024 / 1024).toFixed(2)}MB`);
-    return usage;
-  }
-
-  // Log memory usage every 30 seconds during indexing
-  let memoryLoggingInterval = null;
-  function startMemoryLogging() {
-    if (!memoryLoggingInterval) {
-      logMemoryUsage('Initial');
-      memoryLoggingInterval = setInterval(() => {
-        logMemoryUsage('Periodic');
-      }, 30000); // Log every 30 seconds
-    }
-  }
-
-  function stopMemoryLogging() {
-    if (memoryLoggingInterval) {
-      clearInterval(memoryLoggingInterval);
-      memoryLoggingInterval = null;
-      logMemoryUsage('Final');
-    }
-  }
-
-  // Default batch sizes for different folder sizes
-  const SMALL_FOLDER_BATCH_SIZE = 20;  // For folders with < 100 files
-  const MEDIUM_FOLDER_BATCH_SIZE = 50; // For folders with 100-1000 files
-  const LARGE_FOLDER_BATCH_SIZE = 100; // For folders with > 1000 files
-
-  // Get the appropriate batch size based on folder size
-  function getBatchSizeForFolder(fileCount) {
-    if (fileCount < 100) {
-      return SMALL_FOLDER_BATCH_SIZE;
-    } else if (fileCount < 1000) {
-      return MEDIUM_FOLDER_BATCH_SIZE;
-    } else {
-      return LARGE_FOLDER_BATCH_SIZE;
-    }
-  }
 
   // Process file save queue
   async function processFileSaveQueue() {
     if (fileSaveQueue.length === 0) {
       fileSaveTimer = null;
-      // Notify any waiting promises that the queue is empty
-      processQueueEmptyResolvers.forEach(resolver => resolver());
-      processQueueEmptyResolvers = [];
       return;
     }
 
-    // Log memory usage before processing
-    logMemoryUsage('Before batch processing');
-
-    // Determine the appropriate batch size based on the total number of files in the queue
-    const totalFiles = fileSaveQueue.length;
-    const batchSize = getBatchSizeForFolder(totalFiles);
-    console.log(`Using batch size ${batchSize} for ${totalFiles} files in queue`);
-
     // Take a batch of files to save
-    const batch = fileSaveQueue.splice(0, batchSize);
-
-    // Update the queue size by subtracting the size of the removed files
-    let batchSizeBytes = 0;
-    for (const file of batch) {
-      batchSizeBytes += estimateFileSizeInMemory(file);
-    }
-    currentQueueSizeBytes = Math.max(0, currentQueueSizeBytes - batchSizeBytes);
-    console.log(`Removed ${batchSizeBytes} bytes from queue, current queue size: ${(currentQueueSizeBytes / 1024 / 1024).toFixed(2)}MB`);
+    const batch = fileSaveQueue.splice(0, FILE_SAVE_BATCH_SIZE);
 
     // Filter out files for folders that are no longer being indexed
     const validBatch = batch.filter(file => {
@@ -1257,9 +1147,6 @@ if (!gotTheLock) {
         fileSaveTimer = setTimeout(processFileSaveQueue, FILE_SAVE_BATCH_DELAY);
       } else {
         fileSaveTimer = null;
-        // Notify any waiting promises that the queue is empty
-        processQueueEmptyResolvers.forEach(resolver => resolver());
-        processQueueEmptyResolvers = [];
       }
       return;
     }
@@ -1298,337 +1185,11 @@ if (!gotTheLock) {
       console.error('Error saving batch to database:', error);
     }
 
-    // Log memory usage after processing the batch
-    logMemoryUsage('After batch processing');
-
     // Schedule next batch if there are more files
     if (fileSaveQueue.length > 0) {
       fileSaveTimer = setTimeout(processFileSaveQueue, FILE_SAVE_BATCH_DELAY);
-      console.log(`[Reliability] Scheduled next batch processing in ${FILE_SAVE_BATCH_DELAY}ms, ${fileSaveQueue.length} files remaining`);
     } else {
       fileSaveTimer = null;
-      console.log(`[Reliability] All files processed, queue is empty`);
-
-      // Notify any waiting promises that the queue is empty
-      processQueueEmptyResolvers.forEach(resolver => resolver());
-      processQueueEmptyResolvers = [];
-    }
-  }
-
-  // Folder operation locks to prevent race conditions
-  const folderLocks = new Map();
-
-  // Helper function to acquire a lock for a folder
-  async function acquireFolderLock(folderPath) {
-    // If there's already a lock for this folder, wait for it to be released
-    if (folderLocks.has(folderPath)) {
-      console.log(`Waiting for lock on folder: ${folderPath}`);
-      await folderLocks.get(folderPath);
-      console.log(`Lock released for folder: ${folderPath}`);
-    }
-
-    // Create a new lock (promise) for this folder
-    let releaseLock;
-    const lockPromise = new Promise(resolve => {
-      releaseLock = resolve;
-    });
-
-    // Store the lock in the map
-    folderLocks.set(folderPath, lockPromise);
-
-    // Return a function to release the lock
-    return () => {
-      folderLocks.delete(folderPath);
-      releaseLock();
-      console.log(`Lock released for folder: ${folderPath}`);
-    };
-  }
-
-  // Helper function to perform a folder operation with a lock
-  async function withFolderLock(folderPath, operation) {
-    const releaseLock = await acquireFolderLock(folderPath);
-    try {
-      return await operation();
-    } finally {
-      releaseLock();
-    }
-  }
-
-  // Helper function to remove a folder from the index with locking
-  async function removeFolderFromIndexWithLock(folderPath, event) {
-    return withFolderLock(folderPath, async () => {
-      console.log(`Acquired lock for folder: ${folderPath}`);
-
-      try {
-        // Validate folderPath
-        if (!folderPath) {
-          console.error('Invalid folder path received:', folderPath);
-          return {
-            success: false,
-            error: 'Invalid folder path',
-            folderPath
-          };
-        }
-
-        // First check if the folder is being indexed and stop indexation if needed
-        const isBeingIndexed = foldersBeingIndexed.some(f => f.folderPath === folderPath);
-        if (isBeingIndexed) {
-          console.log(`Stopping indexation for folder: ${folderPath}`);
-          // Remove from folders being indexed
-          foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
-        }
-
-        // Stop watching the folder
-        const watchingStopped = await stopWatchingFolder(folderPath);
-        console.log(`Folder watching stopped: ${watchingStopped}`);
-
-        // Clean up the file save queue for this folder
-        const removedFromQueue = cleanupFileSaveQueue(folderPath);
-        console.log(`Cleaned up file save queue for folder: ${folderPath}, removed ${removedFromQueue} files`);
-
-        // Get the folder ID from the renderer process
-        const mainWindow = BrowserWindow.fromWebContents(event.sender);
-        if (!mainWindow) {
-          console.error('No main window found for event sender');
-          return {
-            success: false,
-            error: 'No window found',
-            folderPath,
-            watchingStopped,
-            indexationStopped: isBeingIndexed
-          };
-        }
-
-        console.log(`Requesting folder ID for path: ${folderPath}`);
-
-        // Create a promise that will be resolved when we get the folder ID from the renderer process
-        const folderIdPromise = new Promise((resolve) => {
-          // Set up a one-time listener for the folder ID response
-          ipcMain.once('folder-id-response', (event, response) => {
-            console.log(`Received folder ID response:`, response);
-            resolve(response);
-          });
-
-          // Send a message to the renderer process to get the folder ID
-          mainWindow.webContents.send('get-folder-id', { folderPath });
-        });
-
-        // Wait for the folder ID with a timeout
-        let folderIdResponse;
-        try {
-          // Add a timeout to the promise
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Timeout waiting for folder ID')), 15000);
-          });
-
-          folderIdResponse = await Promise.race([folderIdPromise, timeoutPromise]);
-        } catch (timeoutError) {
-          console.error('Timeout waiting for folder ID response:', timeoutError);
-          return {
-            success: false,
-            error: 'Timeout waiting for folder ID',
-            folderPath,
-            watchingStopped,
-            indexationStopped: isBeingIndexed
-          };
-        }
-
-        let filesRemoved = 0;
-
-        if (folderIdResponse && folderIdResponse.success && folderIdResponse.folderId) {
-          // Remove all files for this folder from the database
-          const folderId = folderIdResponse.folderId;
-          console.log(`Removing files from database for folder ID: ${folderId}`);
-
-          try {
-            // Use retry logic for database operation
-            const result = await retryOperation(
-              async () => await db.removeFolderFromIndex(folderId),
-              3, // Max retries
-              1000, // Initial delay in ms
-              `Remove folder ${folderPath} from index` // Operation name for logging
-            );
-
-            filesRemoved = result.count;
-            console.log(`Removed ${filesRemoved} files from database for folder: ${folderPath}`);
-          } catch (dbError) {
-            // Categorize the error for better reporting
-            const errorCategory = categorizeError(dbError);
-            console.error(`Error removing files from database for folder ${folderPath} after retries (${errorCategory}):`, dbError);
-
-            // Do not continue with the operation if database removal fails
-            return {
-              success: false,
-              error: `Failed to remove files from database: ${dbError.toString()}`,
-              errorCategory,
-              folderPath,
-              watchingStopped,
-              indexationStopped: isBeingIndexed
-            };
-          }
-        } else {
-          console.warn(`Invalid folder ID response:`, folderIdResponse);
-        }
-
-        console.log(`Folder removal from index completed successfully`);
-
-        // Check if there are any folders still being indexed
-        if (foldersBeingIndexed.length === 0) {
-          // If no folders are being indexed, stop memory logging
-          console.log('No more folders being indexed, stopping memory logging');
-          stopMemoryLogging();
-        } else {
-          console.log(`${foldersBeingIndexed.length} folders still being indexed, continuing memory logging`);
-        }
-
-        return {
-          success: true,
-          folderPath,
-          watchingStopped,
-          indexationStopped: isBeingIndexed,
-          filesRemoved,
-          removedFromQueue
-        };
-      } catch (error) {
-        console.error('Error in removeFolderFromIndexWithLock:', error);
-        return { success: false, error: error.toString() };
-      }
-    });
-  }
-
-  // Error categories for better error reporting
-  const ErrorCategory = {
-    NETWORK: 'NETWORK',
-    FILE_SYSTEM: 'FILE_SYSTEM',
-    PERMISSION: 'PERMISSION',
-    DATABASE: 'DATABASE',
-    TIMEOUT: 'TIMEOUT',
-    CANCELLED: 'CANCELLED',
-    UNKNOWN: 'UNKNOWN'
-  };
-
-  // Helper function to categorize errors
-  function categorizeError(error) {
-    const errorMessage = error.message || error.toString();
-    const errorCode = error.code || '';
-
-    // Network errors
-    if (
-      errorMessage.includes('network') ||
-      errorMessage.includes('connection') ||
-      errorCode.includes('ECONNREFUSED') ||
-      errorCode.includes('ENOTFOUND')
-    ) {
-      return ErrorCategory.NETWORK;
-    }
-
-    // File system errors
-    if (
-      errorMessage.includes('ENOENT') ||
-      errorMessage.includes('no such file') ||
-      errorCode.includes('ENOENT') ||
-      errorCode.includes('EBADF')
-    ) {
-      return ErrorCategory.FILE_SYSTEM;
-    }
-
-    // Permission errors
-    if (
-      errorMessage.includes('permission') ||
-      errorMessage.includes('access') ||
-      errorCode.includes('EACCES') ||
-      errorCode.includes('EPERM')
-    ) {
-      return ErrorCategory.PERMISSION;
-    }
-
-    // Database errors
-    if (
-      errorMessage.includes('database') ||
-      errorMessage.includes('sqlite') ||
-      errorMessage.includes('SQL') ||
-      errorMessage.includes('constraint')
-    ) {
-      return ErrorCategory.DATABASE;
-    }
-
-    // Timeout errors
-    if (
-      errorMessage.includes('timeout') ||
-      errorMessage.includes('timed out') ||
-      errorCode.includes('ETIMEDOUT')
-    ) {
-      return ErrorCategory.TIMEOUT;
-    }
-
-    // Cancelled errors
-    if (
-      errorMessage.includes('cancel') ||
-      errorMessage.includes('abort')
-    ) {
-      return ErrorCategory.CANCELLED;
-    }
-
-    // Default to unknown
-    return ErrorCategory.UNKNOWN;
-  }
-
-  // Helper function to retry an operation with exponential backoff
-  async function retryOperation(operation, maxRetries = 3, initialDelay = 1000, operationName = 'Operation') {
-    let retries = 0;
-    let delay = initialDelay;
-
-    while (true) {
-      try {
-        return await operation();
-      } catch (error) {
-        retries++;
-        if (retries >= maxRetries) {
-          console.error(`${operationName} failed after ${maxRetries} retries:`, error);
-          throw error;
-        }
-
-        console.log(`${operationName} failed, retrying (${retries}/${maxRetries}) after ${delay}ms:`, error);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // Exponential backoff
-      }
-    }
-  }
-
-  // Helper function to add a file to the save queue with memory management
-  async function addToSaveQueue(file) {
-    // Estimate file size in memory
-    const estimatedSizeBytes = estimateFileSizeInMemory(file);
-
-    // Check if adding this file would exceed our memory budget
-    if (currentQueueSizeBytes + estimatedSizeBytes > MAX_QUEUE_SIZE_BYTES) {
-      console.log(`Queue size would exceed limit (${(currentQueueSizeBytes / 1024 / 1024).toFixed(2)}MB + ${(estimatedSizeBytes / 1024 / 1024).toFixed(2)}MB > ${MAX_QUEUE_SIZE_MB}MB), waiting for queue to process...`);
-
-      // Wait for queue to process before adding more
-      await new Promise(resolve => {
-        const checkInterval = setInterval(() => {
-          if (currentQueueSizeBytes + estimatedSizeBytes <= MAX_QUEUE_SIZE_BYTES) {
-            clearInterval(checkInterval);
-            resolve();
-          } else {
-            console.log(`Still waiting for queue to process... Current: ${(currentQueueSizeBytes / 1024 / 1024).toFixed(2)}MB, Need: ${(estimatedSizeBytes / 1024 / 1024).toFixed(2)}MB`);
-          }
-        }, 1000); // Check every second
-      });
-    }
-
-    // Add to queue and update size
-    fileSaveQueue.push(file);
-    currentQueueSizeBytes += estimatedSizeBytes;
-
-    // Log if queue size is getting large
-    if (currentQueueSizeBytes > MAX_QUEUE_SIZE_BYTES * 0.8) {
-      console.log(`Queue size is approaching limit: ${(currentQueueSizeBytes / 1024 / 1024).toFixed(2)}MB / ${MAX_QUEUE_SIZE_MB}MB (${Math.round(currentQueueSizeBytes / MAX_QUEUE_SIZE_BYTES * 100)}%)`);
-    }
-
-    // Start queue processing if not already running
-    if (fileSaveTimer === null) {
-      fileSaveTimer = setTimeout(processFileSaveQueue, FILE_SAVE_BATCH_DELAY);
     }
   }
 
@@ -1675,9 +1236,9 @@ if (!gotTheLock) {
         indexed: true
       };
 
-      // Create the file object to add to the queue
-      const fileToQueue = {
-        id: uuidv4(),
+      // Add file to save queue instead of sending immediately
+      fileSaveQueue.push({
+        id: Date.now().toString() + '-' + path.basename(filePath).replace(/[^a-zA-Z0-9]/g, '-'),
         folderId: folderId,
         folderPath: folderPath, // Ensure folderPath is included for filtering
         path: filePath,
@@ -1685,10 +1246,12 @@ if (!gotTheLock) {
         content: content,
         lastIndexed: new Date(),
         lastModified: stats.mtime
-      };
+      });
 
-      // Add file to save queue with memory management
-      await addToSaveQueue(fileToQueue);
+      // Start queue processing if not already running
+      if (fileSaveTimer === null) {
+        fileSaveTimer = setTimeout(processFileSaveQueue, FILE_SAVE_BATCH_DELAY);
+      }
 
       return fileInfo;
     } catch (error) {
@@ -1777,37 +1340,7 @@ if (!gotTheLock) {
     }
   }
 
-  // Throttle function for progress updates with dynamic throttle time based on folder size
-  function getThrottleTimeForFolderSize(totalFiles) {
-    if (totalFiles < 100) {
-      return 100; // 100ms for small folders (< 100 files)
-    } else if (totalFiles < 1000) {
-      return 250; // 250ms for medium folders (100-1000 files)
-    } else {
-      return 500; // 500ms for large folders (> 1000 files)
-    }
-  }
-
-  // Create a map to store throttle functions for different folder IDs
-  const folderThrottleFunctions = new Map();
-
-  // Function to get or create a throttle function for a specific folder
-  function getThrottleFunction(folderId, totalFiles) {
-    if (!folderThrottleFunctions.has(folderId)) {
-      const throttleTime = getThrottleTimeForFolderSize(totalFiles);
-      console.log(`Creating throttle function for folder ${folderId} with throttle time ${throttleTime}ms (${totalFiles} files)`);
-
-      folderThrottleFunctions.set(folderId, throttle((mainWindow, data) => {
-        if (mainWindow) {
-          mainWindow.webContents.send('indexation-progress', data);
-        }
-      }, throttleTime));
-    }
-
-    return folderThrottleFunctions.get(folderId);
-  }
-
-  // Default throttle function for backwards compatibility
+  // Throttle function for progress updates
   const throttleProgressUpdates = throttle((mainWindow, data) => {
     if (mainWindow) {
       mainWindow.webContents.send('indexation-progress', data);
@@ -1875,22 +1408,13 @@ if (!gotTheLock) {
               // Throttle progress updates to avoid overwhelming the UI
               if (mainWindow && totalFiles > 0) {
                 const progress = Math.round((indexedFiles / totalFiles) * 100);
-                const isSmallFolder = totalFiles < 100;
 
-                // For small folders, we want more frequent updates
-                // For larger folders, we only update on significant progress
-                const minProgressChange = isSmallFolder ? 0 : 1; // No minimum change for small folders
-                const minTimeInterval = isSmallFolder ? 100 : 500; // Shorter interval for small folders
-
-                // Only send progress updates if significant progress has been made
+                // Only send progress updates if significant progress has been made (at least 1% change)
                 // or if it's been a while since the last update
                 const now = Date.now();
-                if ((progress - lastProgressUpdate >= minProgressChange) || (now - lastProgressUpdate >= minTimeInterval)) {
+                if (progress > lastProgressUpdate || now - lastProgressUpdate >= 500) {
                   lastProgressUpdate = progress;
-
-                  // Use the folder-specific throttle function if available
-                  const throttleFn = getThrottleFunction(folderId, totalFiles);
-                  throttleFn(mainWindow, {
+                  throttleProgressUpdates(mainWindow, {
                     folderId,
                     folderPath: rootPath,
                     indexedFiles,
@@ -1916,85 +1440,19 @@ if (!gotTheLock) {
     }
   }
 
-  // Function to wait for the file save queue to be empty for a specific folder
-  async function waitForQueueEmpty(folderPath, timeout = 60000) {
-    console.log(`Waiting for file save queue to be empty for folder: ${folderPath}`);
-
-    // Check if there are any files in the queue for this folder
-    const filesInQueue = fileSaveQueue.filter(file => {
-      return file.folderPath === folderPath;
-    }).length;
-
-    if (filesInQueue === 0) {
-      console.log(`No files in queue for folder: ${folderPath}, continuing immediately`);
-      return true;
-    }
-
-    console.log(`Found ${filesInQueue} files in queue for folder: ${folderPath}, waiting for them to be processed...`);
-
-    // Create a promise that will be resolved when the queue is empty
-    return new Promise((resolve, reject) => {
-      // Set a timeout to prevent waiting indefinitely
-      const timeoutId = setTimeout(() => {
-        // Remove this resolver from the array
-        processQueueEmptyResolvers = processQueueEmptyResolvers.filter(r => r !== resolver);
-
-        // Check if there are still files in the queue for this folder
-        const remainingFiles = fileSaveQueue.filter(file => {
-          return file.folderPath === folderPath;
-        }).length;
-
-        if (remainingFiles > 0) {
-          console.warn(`Timeout waiting for queue to be empty for folder: ${folderPath}, ${remainingFiles} files still in queue`);
-          // Resolve anyway to prevent blocking
-          resolve(false);
-        } else {
-          console.log(`Queue is now empty for folder: ${folderPath} (timeout check)`);
-          resolve(true);
-        }
-      }, timeout);
-
-      // Create a resolver function that will be called when the queue is empty
-      const resolver = () => {
-        // Check if there are still files in the queue for this folder
-        const remainingFiles = fileSaveQueue.filter(file => {
-          return file.folderPath === folderPath;
-        }).length;
-
-        if (remainingFiles === 0) {
-          // Clear the timeout
-          clearTimeout(timeoutId);
-          console.log(`Queue is now empty for folder: ${folderPath}`);
-          resolve(true);
-        }
-      };
-
-      // Add the resolver to the array
-      processQueueEmptyResolvers.push(resolver);
-
-      // Check immediately in case the queue is already empty
-      resolver();
-    });
-  }
-
   // Handler for indexing a single folder and all its subdirectories (deep indexing)
   ipcMain.handle('index-folder', async (event, folderPath) => {
     try {
       console.log(`Starting to index folder: ${folderPath}`);
-      console.log(`[Reliability] Using UUID for IDs, dynamic batch sizing, and memory management`);
-
-      // Start memory logging
-      startMemoryLogging();
 
       // Check if folder exists
       const stats = await fsPromises.stat(folderPath);
       if (!stats.isDirectory()) {
-        stopMemoryLogging(); // Stop memory logging if folder doesn't exist
         return { success: false, error: 'Not a directory' };
       }
 
       // Generate a folder ID (in a real app, this would come from your database)
-      const folderId = uuidv4();
+      const folderId = Date.now().toString();
 
       // Count total files before starting indexation
       console.log(`Counting files in folder: ${folderPath}`);
@@ -2026,10 +1484,31 @@ if (!gotTheLock) {
         // Index the directory with progress tracking
         const { results, indexedFiles } = await indexDirectory(folderPath, folderId, folderPath, totalFiles, 0, mainWindow);
 
-        // Wait for the file save queue to be empty for this folder before completing
-        console.log(`Directory indexing completed, waiting for file save queue to be empty for folder: ${folderPath}`);
-        await waitForQueueEmpty(folderPath);
-        console.log(`File save queue is now empty for folder: ${folderPath}, completing indexation`);
+        // We need to make sure the file save queue is empty before completing indexation
+        console.log(`Checking file save queue for folder: ${folderPath}, ${fileSaveQueue.filter(file => file.folderPath === folderPath).length} files still in queue`);
+
+        // Wait for the file save queue to be empty for this folder with a timeout
+        const maxWaitTime = 60000; // 60 seconds timeout
+        const startTime = Date.now();
+
+        while (fileSaveQueue.filter(file => file.folderPath === folderPath).length > 0) {
+          // Check if we've exceeded the maximum wait time
+          if (Date.now() - startTime > maxWaitTime) {
+            console.log(`Timeout waiting for queue to be empty for folder: ${folderPath}, ${fileSaveQueue.filter(file => file.folderPath === folderPath).length} files still in queue`);
+            break;
+          }
+
+          // Wait a short time before checking again
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        // Log whether the queue is empty or not
+        const remainingFiles = fileSaveQueue.filter(file => file.folderPath === folderPath).length;
+        if (remainingFiles === 0) {
+          console.log(`File save queue is now empty for folder: ${folderPath}, completing indexation`);
+        } else {
+          console.log(`File save queue still has ${remainingFiles} files for folder: ${folderPath}, but proceeding with completion due to timeout`);
+        }
 
         // Send final progress update
         if (mainWindow) {
@@ -2094,7 +1573,7 @@ if (!gotTheLock) {
           }
 
           // Generate a folder ID (in a real app, this would come from your database)
-          const folderId = uuidv4();
+          const folderId = Date.now().toString() + '-' + folderPaths.indexOf(folderPath);
 
           // Add to folders being indexed
           foldersBeingIndexed.push({ folderPath, folderId });
@@ -2127,6 +1606,49 @@ if (!gotTheLock) {
             });
             totalErrorsCount++;
           } finally {
+            // We need to make sure the file save queue is empty before completing indexation
+            // But we can't use await directly in a finally block, so we'll use a workaround
+
+            // First, log the current queue status
+            console.log(`Checking file save queue for folder: ${folderPath}, ${fileSaveQueue.filter(file => file.folderPath === folderPath).length} files still in queue`);
+
+            // If queue is not empty, set up a timer to check periodically and complete when empty
+            if (fileSaveQueue.filter(file => file.folderPath === folderPath).length > 0) {
+              console.log(`Waiting for file save queue to be empty for folder: ${folderPath}`);
+
+              // Use an async IIFE that we don't await - this is a compromise
+              // The folder will still be marked as completed, but we'll delay the cleanup
+              (async () => {
+                try {
+                  const maxWaitTime = 60000; // 60 seconds timeout
+                  const startTime = Date.now();
+
+                  while (fileSaveQueue.filter(file => file.folderPath === folderPath).length > 0) {
+                    // Check if we've exceeded the maximum wait time
+                    if (Date.now() - startTime > maxWaitTime) {
+                      console.log(`Timeout waiting for queue to be empty for folder: ${folderPath}, ${fileSaveQueue.filter(file => file.folderPath === folderPath).length} files still in queue`);
+                      break;
+                    }
+
+                    // Wait a short time before checking again
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                  }
+
+                  // Log whether the queue is empty or not
+                  const remainingFiles = fileSaveQueue.filter(file => file.folderPath === folderPath).length;
+                  if (remainingFiles === 0) {
+                    console.log(`File save queue is now empty for folder: ${folderPath}, completing indexation`);
+                  } else {
+                    console.log(`File save queue still has ${remainingFiles} files for folder: ${folderPath}, but proceeding with completion due to timeout`);
+                  }
+                } catch (error) {
+                  console.error(`Error waiting for file save queue to be empty for folder: ${folderPath}:`, error);
+                }
+              })();
+            } else {
+              console.log(`File save queue is already empty for folder: ${folderPath}, completing indexation immediately`);
+            }
+
             // Remove from folders being indexed regardless of success or failure
             foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
 
@@ -2266,7 +1788,7 @@ if (!gotTheLock) {
           watcher.on('unlink', throttledUnlinkHandler);
 
           // Generate a consistent folder ID for this folder
-          const folderId = uuidv4();
+          const folderId = Date.now().toString() + '-' + folderPath.replace(/[^a-zA-Z0-9]/g, '-');
 
           // Store the watcher with the folder ID
           folderWatchers.push({
@@ -2394,46 +1916,6 @@ if (!gotTheLock) {
     }
   });
 
-  // Helper function to clean up the file save queue for a specific folder
-  function cleanupFileSaveQueue(folderPath) {
-    if (!folderPath) return 0;
-
-    const initialLength = fileSaveQueue.length;
-    let removedSizeBytes = 0;
-
-    // Identify files to remove and calculate their size
-    const filesToRemove = fileSaveQueue.filter(file => {
-      const fileFolder = file.folderPath || '';
-      return fileFolder === folderPath;
-    });
-
-    // Calculate the total size of files to remove
-    for (const file of filesToRemove) {
-      removedSizeBytes += estimateFileSizeInMemory(file);
-    }
-
-    // Remove all files for this folder from the queue
-    fileSaveQueue = fileSaveQueue.filter(file => {
-      const fileFolder = file.folderPath || '';
-      return fileFolder !== folderPath;
-    });
-
-    // Update the queue size
-    currentQueueSizeBytes = Math.max(0, currentQueueSizeBytes - removedSizeBytes);
-
-    const removedCount = initialLength - fileSaveQueue.length;
-    if (removedCount > 0) {
-      console.log(`Removed ${removedCount} files (${(removedSizeBytes / 1024 / 1024).toFixed(2)}MB) for folder ${folderPath} from the save queue`);
-      console.log(`Current queue size: ${fileSaveQueue.length} files, ${(currentQueueSizeBytes / 1024 / 1024).toFixed(2)}MB`);
-
-      // Log memory usage after cleanup
-      logMemoryUsage('After queue cleanup');
-      console.log(`[Reliability] Queue cleanup for folder ${folderPath} completed successfully`);
-    }
-
-    return removedCount;
-  }
-
   // Handler for stopping indexation of a specific folder
   ipcMain.handle('stop-folder-indexation', async (event, folderPath) => {
     try {
@@ -2470,9 +1952,6 @@ if (!gotTheLock) {
         // Remove from folders being indexed
         foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
 
-        // Clean up the file save queue for this folder
-        const removedFromQueue = cleanupFileSaveQueue(folderPath);
-
         // Wait a short time to allow the indexation process to stop gracefully
         await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -2480,19 +1959,9 @@ if (!gotTheLock) {
         folderIndexingStatus.delete(folderPath);
         console.log(`Cleared indexing status for folder: ${folderPath} after stopping`);
 
-        // Check if there are any folders still being indexed
-        if (foldersBeingIndexed.length === 0) {
-          // If no folders are being indexed, stop memory logging
-          console.log('No more folders being indexed, stopping memory logging');
-          stopMemoryLogging();
-        } else {
-          console.log(`${foldersBeingIndexed.length} folders still being indexed, continuing memory logging`);
-        }
-
         return {
           success: true,
-          message: `Indexation stopped for folder: ${folderPath}`,
-          removedFromQueue
+          message: `Indexation stopped for folder: ${folderPath}`
         };
       } else {
         console.log(`Folder not being indexed: ${folderPath}`);
@@ -2606,160 +2075,105 @@ if (!gotTheLock) {
     try {
       console.log(`Received request to remove folder from index: ${folderPath}`);
 
-      // Use the helper function with locking to remove the folder from the index
-      return await removeFolderFromIndexWithLock(folderPath, event);
+      // Validate folderPath
+      if (!folderPath) {
+        console.error('Invalid folder path received:', folderPath);
+        return {
+          success: false,
+          error: 'Invalid folder path',
+          folderPath
+        };
+      }
+
+      // First check if the folder is being indexed and stop indexation if needed
+      const isBeingIndexed = foldersBeingIndexed.some(f => f.folderPath === folderPath);
+      if (isBeingIndexed) {
+        console.log(`Stopping indexation for folder: ${folderPath}`);
+        // Remove from folders being indexed
+        foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
+      }
+
+      // Stop watching the folder
+      const watchingStopped = await stopWatchingFolder(folderPath);
+      console.log(`Folder watching stopped: ${watchingStopped}`);
+
+      // Get the folder ID from the renderer process
+      const mainWindow = BrowserWindow.fromWebContents(event.sender);
+      if (!mainWindow) {
+        console.error('No main window found for event sender');
+        return {
+          success: false,
+          error: 'No window found',
+          folderPath,
+          watchingStopped,
+          indexationStopped: isBeingIndexed
+        };
+      }
+
+      console.log(`Requesting folder ID for path: ${folderPath}`);
+
+      // Create a promise that will be resolved when we get the folder ID from the renderer process
+      const folderIdPromise = new Promise((resolve) => {
+        // Set up a one-time listener for the folder ID response
+        ipcMain.once('folder-id-response', (event, response) => {
+          console.log(`Received folder ID response:`, response);
+          resolve(response);
+        });
+
+        // Send a message to the renderer process to get the folder ID
+        mainWindow.webContents.send('get-folder-id', { folderPath });
+      });
+
+      // Wait for the folder ID with a timeout
+      let folderIdResponse;
+      try {
+        // Add a timeout to the promise
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout waiting for folder ID')), 15000);
+        });
+
+        folderIdResponse = await Promise.race([folderIdPromise, timeoutPromise]);
+      } catch (timeoutError) {
+        console.error('Timeout waiting for folder ID response:', timeoutError);
+        return {
+          success: false,
+          error: 'Timeout waiting for folder ID',
+          folderPath,
+          watchingStopped,
+          indexationStopped: isBeingIndexed
+        };
+      }
+
+      let filesRemoved = 0;
+
+      if (folderIdResponse && folderIdResponse.success && folderIdResponse.folderId) {
+        // Remove all files for this folder from the database
+        const folderId = folderIdResponse.folderId;
+        console.log(`Removing files from database for folder ID: ${folderId}`);
+
+        try {
+          const result = await db.removeFolderFromIndex(folderId);
+          filesRemoved = result.count;
+          console.log(`Removed ${filesRemoved} files from database for folder: ${folderPath}`);
+        } catch (dbError) {
+          console.error(`Error removing files from database for folder ${folderPath}:`, dbError);
+          // Continue with the operation even if database removal fails
+        }
+      } else {
+        console.warn(`Invalid folder ID response:`, folderIdResponse);
+      }
+
+      console.log(`Folder removal from index completed successfully`);
+      return {
+        success: true,
+        folderPath,
+        watchingStopped,
+        indexationStopped: isBeingIndexed,
+        filesRemoved
+      };
     } catch (error) {
       console.error('Error in remove-folder-from-index handler:', error);
       return { success: false, error: error.toString() };
-    }
-  });
-
-  // Handler for checking database integrity
-  ipcMain.handle('check-database-integrity', async (event, thorough = false) => {
-    try {
-      console.log(`Received request to check database integrity (thorough: ${thorough})`);
-
-      const result = await db.checkDatabaseIntegrity(thorough);
-
-      // Log the integrity check results
-      console.log(`[Reliability] Database integrity check completed (thorough: ${thorough})`);
-      console.log(`[Reliability] Integrity status: ${result.integrity ? 'OK' : 'ISSUES FOUND'}`);
-      if (result.issues && result.issues.length > 0) {
-        console.log(`[Reliability] Found ${result.issues.length} issue types:`);
-        result.issues.forEach(issue => {
-          console.log(`[Reliability] - ${issue.type}: ${issue.message} (${issue.count} occurrences)`);
-        });
-      } else {
-        console.log(`[Reliability] No issues found`);
-      }
-
-      return {
-        success: true,
-        integrity: result.integrity,
-        issues: result.issues
-      };
-    } catch (error) {
-      console.error('Error checking database integrity:', error);
-      return {
-        success: false,
-        error: error.toString(),
-        integrity: false,
-        issues: [{ type: 'error', message: error.toString(), count: 1 }]
-      };
-    }
-  });
-
-  // Handler for repairing database issues
-  ipcMain.handle('repair-database', async (event) => {
-    try {
-      console.log('Received request to repair database');
-
-      const result = await db.repairDatabase();
-
-      // Log the repair results
-      console.log(`[Reliability] Database repair completed`);
-      console.log(`[Reliability] Repair status: ${result.repaired ? 'SUCCESSFUL' : 'NO CHANGES NEEDED'}`);
-      console.log(`[Reliability] Repaired ${result.repairedIssues} issues, ${result.remainingIssues} issues remaining`);
-
-      if (result.issues && result.issues.length > 0) {
-        console.log(`[Reliability] Remaining issues:`);
-        result.issues.forEach(issue => {
-          console.log(`[Reliability] - ${issue.type}: ${issue.message} (${issue.count} occurrences)`);
-        });
-      } else if (result.remainingIssues === 0) {
-        console.log(`[Reliability] No remaining issues`);
-      }
-
-      return {
-        success: true,
-        repaired: result.repaired,
-        repairedIssues: result.repairedIssues,
-        remainingIssues: result.remainingIssues,
-        issues: result.issues
-      };
-    } catch (error) {
-      console.error('Error repairing database:', error);
-      return {
-        success: false,
-        error: error.toString(),
-        repaired: false
-      };
-    }
-  });
-
-  // Handler for optimizing the database
-  ipcMain.handle('optimize-database', async (event) => {
-    try {
-      console.log('Received request to optimize database');
-
-      const result = await db.optimizeDatabase();
-
-      // Log the optimization results
-      console.log(`[Reliability] Database optimization completed successfully`);
-      console.log(`[Reliability] ${result.message}`);
-
-      // Log memory usage after optimization
-      logMemoryUsage('After database optimization');
-
-      return {
-        success: true,
-        message: result.message
-      };
-    } catch (error) {
-      console.error('Error optimizing database:', error);
-      return {
-        success: false,
-        error: error.toString()
-      };
-    }
-  });
-
-  // Handler for getting database statistics
-  ipcMain.handle('get-database-stats', async (event) => {
-    try {
-      console.log('Received request to get database statistics');
-
-      const stats = await db.getDatabaseStats();
-
-      // Log the database statistics
-      console.log(`[Reliability] Database statistics retrieved successfully`);
-      console.log(`[Reliability] Total files: ${stats.totalFiles}`);
-      console.log(`[Reliability] Total folders: ${stats.totalFolders}`);
-      console.log(`[Reliability] Total content size: ${(stats.totalSize / 1024 / 1024).toFixed(2)}MB`);
-      console.log(`[Reliability] Integrity status: ${stats.integrityStatus}`);
-
-      if (stats.issues && stats.issues.length > 0) {
-        console.log(`[Reliability] Found ${stats.issues.length} issue types:`);
-        stats.issues.forEach(issue => {
-          console.log(`[Reliability] - ${issue.type}: ${issue.message} (${issue.count} occurrences)`);
-        });
-      }
-
-      return {
-        success: true,
-        stats: {
-          totalFiles: stats.totalFiles,
-          totalFolders: stats.totalFolders,
-          totalSize: stats.totalSize,
-          lastUpdated: stats.lastUpdated,
-          integrityStatus: stats.integrityStatus,
-          issues: stats.issues
-        }
-      };
-    } catch (error) {
-      console.error('Error getting database statistics:', error);
-      return {
-        success: false,
-        error: error.toString(),
-        stats: {
-          totalFiles: 0,
-          totalFolders: 0,
-          totalSize: 0,
-          lastUpdated: new Date(),
-          integrityStatus: 'error',
-          issues: [{ type: 'error', message: error.toString(), count: 1 }]
-        }
-      };
     }
   });
 
