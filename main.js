@@ -4,6 +4,9 @@ const url = require('url');
 const fs = require('fs');
 const fsPromises = fs.promises;
 const chokidar = require('chokidar');
+const { v4: uuidv4 } = require('uuid');
+const zlib = require('zlib');
+const crypto = require('crypto');
 const db = require('./db');
 
 // Global watcher instance
@@ -325,6 +328,750 @@ if (!gotTheLock) {
     if (!mainWindow) return null; // Or handle appropriately
     const result = await dialog.showOpenDialog(mainWindow, options);
     return result;
+  });
+
+  // --- Enhanced IPC Communication Handlers ---
+
+  // Map to store pending request handlers with their timeouts
+  const pendingRequests = new Map();
+
+  // IPC Middleware System
+  const middlewareStack = [];
+
+  // Constants for compression
+  const COMPRESSION_THRESHOLD = 10 * 1024; // 10KB - only compress payloads larger than this
+  const COMPRESSION_LEVEL = 6; // zlib compression level (0-9, where 9 is max compression)
+
+  // Constants for security
+  const HMAC_ALGORITHM = 'sha256'; // HMAC algorithm for message integrity
+  const HMAC_KEY = process.env.IPC_HMAC_KEY || 'genia-secure-ipc-key'; // HMAC key (should be set via environment variable in production)
+
+  /**
+   * Middleware interface:
+   * {
+   *   name: string,                    // Name of the middleware for identification
+   *   priority: number,                // Priority (lower numbers run first)
+   *   processRequest: async (request, next) => {},  // Process individual requests
+   *   processBatch: async (batchRequest, next) => {} // Process batch requests
+   * }
+   */
+
+  /**
+   * Register middleware for IPC message processing
+   * @param {Object} middleware - The middleware object
+   */
+  function registerMiddleware(middleware) {
+    if (!middleware.name) {
+      console.error('Middleware must have a name');
+      return;
+    }
+
+    // Default priority to 100 if not specified
+    if (middleware.priority === undefined) {
+      middleware.priority = 100;
+    }
+
+    // Add middleware to stack
+    middlewareStack.push(middleware);
+
+    // Sort middleware by priority (lower numbers run first)
+    middlewareStack.sort((a, b) => a.priority - b.priority);
+
+    console.log(`Registered middleware: ${middleware.name} (priority: ${middleware.priority})`);
+  }
+
+  /**
+   * Run middleware chain for a request
+   * @param {Object} request - The request to process
+   * @returns {Promise<Object>} - The processed response
+   */
+  async function runMiddlewareChain(request, isRequestBatch = false) {
+    let currentIndex = 0;
+
+    // Create the next function that calls the next middleware in the chain
+    const next = async (req) => {
+      // If we've run out of middleware, return the request as is
+      if (currentIndex >= middlewareStack.length) {
+        return req;
+      }
+
+      const currentMiddleware = middlewareStack[currentIndex++];
+
+      try {
+        // Call the appropriate middleware function based on whether this is a batch request
+        if (isRequestBatch && currentMiddleware.processBatch) {
+          return await currentMiddleware.processBatch(req, next);
+        } else if (!isRequestBatch && currentMiddleware.processRequest) {
+          return await currentMiddleware.processRequest(req, next);
+        } else {
+          // Skip middleware that doesn't handle this type of request
+          return await next(req);
+        }
+      } catch (error) {
+        console.error(`Error in middleware ${currentMiddleware.name}:`, error);
+        throw error;
+      }
+    };
+
+    // Start the middleware chain
+    return await next(request);
+  }
+
+  // Service registry for dynamic service discovery
+  const serviceRegistry = new Map();
+
+  /**
+   * Register a service with the IPC service registry
+   * @param {string} serviceName - The name of the service
+   * @param {Object} serviceHandlers - Object containing service handler functions
+   */
+  function registerService(serviceName, serviceHandlers) {
+    if (serviceRegistry.has(serviceName)) {
+      console.warn(`Service ${serviceName} is already registered. Overwriting.`);
+    }
+
+    serviceRegistry.set(serviceName, serviceHandlers);
+    console.log(`Registered service: ${serviceName}`);
+  }
+
+  /**
+   * Get a service from the registry
+   * @param {string} serviceName - The name of the service to retrieve
+   * @returns {Object|null} - The service handlers or null if not found
+   */
+  function getService(serviceName) {
+    return serviceRegistry.has(serviceName) ? serviceRegistry.get(serviceName) : null;
+  }
+
+  /**
+   * List all registered services
+   * @returns {Array<string>} - Array of service names
+   */
+  function listServices() {
+    return Array.from(serviceRegistry.keys());
+  }
+
+  // Register built-in middleware
+
+  // Security middleware
+  registerMiddleware({
+    name: 'security',
+    priority: 20, // Run early in the chain, but after validation if implemented
+
+    // Process individual requests
+    processRequest: async (request, next) => {
+      // Add a timestamp for replay protection
+      if (!request.timestamp) {
+        request.timestamp = Date.now();
+      }
+
+      // Generate HMAC for the request to verify integrity
+      const requestData = JSON.stringify({
+        id: request.id,
+        channel: request.channel,
+        timestamp: request.timestamp,
+        // Don't include the payload in the HMAC if it's already compressed
+        // as the compression middleware will run after this
+        payload: request.compressed ? '[compressed]' : request.payload
+      });
+
+      // Calculate HMAC
+      const hmac = crypto.createHmac(HMAC_ALGORITHM, HMAC_KEY)
+        .update(requestData)
+        .digest('hex');
+
+      // Add HMAC to the request
+      request.hmac = hmac;
+
+      // Process the request through the rest of the middleware chain
+      const processedRequest = await next(request);
+
+      // Verify the response integrity if it has an HMAC
+      if (processedRequest.hmac) {
+        const responseData = JSON.stringify({
+          id: processedRequest.id,
+          requestId: processedRequest.requestId,
+          timestamp: processedRequest.timestamp,
+          success: processedRequest.success,
+          // Don't include the payload in the HMAC verification if it's compressed
+          payload: processedRequest.compressed ? '[compressed]' : processedRequest.payload
+        });
+
+        // Calculate expected HMAC
+        const expectedHmac = crypto.createHmac(HMAC_ALGORITHM, HMAC_KEY)
+          .update(responseData)
+          .digest('hex');
+
+        // Verify HMAC
+        if (processedRequest.hmac !== expectedHmac) {
+          console.error('Response integrity check failed: HMAC mismatch');
+          processedRequest.error = 'Response integrity check failed';
+          processedRequest.success = false;
+        }
+      }
+
+      return processedRequest;
+    },
+
+    // Process batch requests
+    processBatch: async (batchRequest, next) => {
+      // Add a timestamp for replay protection
+      if (!batchRequest.timestamp) {
+        batchRequest.timestamp = Date.now();
+      }
+
+      // Generate HMAC for the batch request to verify integrity
+      const batchRequestData = JSON.stringify({
+        id: batchRequest.id,
+        channel: batchRequest.channel,
+        timestamp: batchRequest.timestamp,
+        // Don't include the payloads in the HMAC if they're already compressed
+        payloads: batchRequest.compressed ? '[compressed]' : batchRequest.payloads
+      });
+
+      // Calculate HMAC
+      const hmac = crypto.createHmac(HMAC_ALGORITHM, HMAC_KEY)
+        .update(batchRequestData)
+        .digest('hex');
+
+      // Add HMAC to the batch request
+      batchRequest.hmac = hmac;
+
+      // Process the batch request through the rest of the middleware chain
+      const processedBatchRequest = await next(batchRequest);
+
+      // Verify the batch response integrity if it has an HMAC
+      if (processedBatchRequest.hmac) {
+        const batchResponseData = JSON.stringify({
+          id: processedBatchRequest.id,
+          requestId: processedBatchRequest.requestId,
+          timestamp: processedBatchRequest.timestamp,
+          success: processedBatchRequest.success,
+          // Don't include the payloads in the HMAC verification if they're compressed
+          payloads: processedBatchRequest.compressed ? '[compressed]' : processedBatchRequest.payloads
+        });
+
+        // Calculate expected HMAC
+        const expectedHmac = crypto.createHmac(HMAC_ALGORITHM, HMAC_KEY)
+          .update(batchResponseData)
+          .digest('hex');
+
+        // Verify HMAC
+        if (processedBatchRequest.hmac !== expectedHmac) {
+          console.error('Batch response integrity check failed: HMAC mismatch');
+          processedBatchRequest.errors = processedBatchRequest.errors || [];
+          processedBatchRequest.errors.push('Batch response integrity check failed');
+          processedBatchRequest.success = false;
+        }
+      }
+
+      return processedBatchRequest;
+    }
+  });
+
+  // Compression middleware
+  registerMiddleware({
+    name: 'compression',
+    priority: 50, // Run after validation but before security
+
+    // Process individual requests
+    processRequest: async (request, next) => {
+      // Check if the request has a payload that needs compression
+      if (request.payload && !request.compressed) {
+        const payloadSize = JSON.stringify(request.payload).length;
+
+        // Only compress payloads larger than the threshold
+        if (payloadSize > COMPRESSION_THRESHOLD) {
+          try {
+            // Convert payload to string
+            const payloadStr = JSON.stringify(request.payload);
+
+            // Compress the payload
+            const compressedPayload = zlib.deflateSync(payloadStr, { level: COMPRESSION_LEVEL });
+
+            // Update the request with compressed payload
+            request.originalPayloadSize = payloadSize;
+            request.payload = compressedPayload.toString('base64');
+            request.compressed = true;
+
+            console.log(`Compressed request payload: ${payloadSize} -> ${request.payload.length} bytes (${Math.round((request.payload.length / payloadSize) * 100)}%)`);
+          } catch (error) {
+            console.error('Error compressing request payload:', error);
+            // Continue with uncompressed payload
+          }
+        }
+      }
+
+      // Process the request through the rest of the middleware chain
+      const processedRequest = await next(request);
+
+      // Check if the response has a compressed payload that needs decompression
+      if (processedRequest.payload && processedRequest.compressed) {
+        try {
+          // Decompress the payload
+          const compressedBuffer = Buffer.from(processedRequest.payload, 'base64');
+          const decompressedPayload = zlib.inflateSync(compressedBuffer).toString();
+
+          // Parse the decompressed payload back to an object
+          processedRequest.payload = JSON.parse(decompressedPayload);
+          processedRequest.compressed = false;
+
+          console.log(`Decompressed response payload: ${compressedBuffer.length} -> ${decompressedPayload.length} bytes`);
+        } catch (error) {
+          console.error('Error decompressing response payload:', error);
+          // Continue with compressed payload
+        }
+      }
+
+      return processedRequest;
+    },
+
+    // Process batch requests
+    processBatch: async (batchRequest, next) => {
+      // Check if the batch request has payloads that need compression
+      if (batchRequest.payloads && Array.isArray(batchRequest.payloads) && !batchRequest.compressed) {
+        const totalSize = JSON.stringify(batchRequest.payloads).length;
+
+        // Only compress if the total size is above the threshold
+        if (totalSize > COMPRESSION_THRESHOLD) {
+          try {
+            // Convert payloads to string
+            const payloadsStr = JSON.stringify(batchRequest.payloads);
+
+            // Compress the payloads
+            const compressedPayloads = zlib.deflateSync(payloadsStr, { level: COMPRESSION_LEVEL });
+
+            // Update the batch request with compressed payloads
+            batchRequest.originalPayloadsSize = totalSize;
+            batchRequest.payloads = compressedPayloads.toString('base64');
+            batchRequest.compressed = true;
+
+            console.log(`Compressed batch payloads: ${totalSize} -> ${batchRequest.payloads.length} bytes (${Math.round((batchRequest.payloads.length / totalSize) * 100)}%)`);
+          } catch (error) {
+            console.error('Error compressing batch payloads:', error);
+            // Continue with uncompressed payloads
+          }
+        }
+      }
+
+      // Process the batch request through the rest of the middleware chain
+      const processedBatchRequest = await next(batchRequest);
+
+      // Check if the batch response has compressed payloads that need decompression
+      if (processedBatchRequest.payloads && processedBatchRequest.compressed) {
+        try {
+          // Decompress the payloads
+          const compressedBuffer = Buffer.from(processedBatchRequest.payloads, 'base64');
+          const decompressedPayloads = zlib.inflateSync(compressedBuffer).toString();
+
+          // Parse the decompressed payloads back to an array
+          processedBatchRequest.payloads = JSON.parse(decompressedPayloads);
+          processedBatchRequest.compressed = false;
+
+          console.log(`Decompressed batch payloads: ${compressedBuffer.length} -> ${decompressedPayloads.length} bytes`);
+        } catch (error) {
+          console.error('Error decompressing batch payloads:', error);
+          // Continue with compressed payloads
+        }
+      }
+
+      return processedBatchRequest;
+    }
+  });
+
+  // Process a request and send back a response
+  async function processRequest(request) {
+    // Run the request through the middleware chain
+    try {
+      request = await runMiddlewareChain(request, false);
+    } catch (error) {
+      console.error('Error in middleware chain:', error);
+      // Continue with the original request if middleware fails
+    }
+
+    const { id, channel, payload, timeout } = request;
+
+    // Create response object
+    const response = {
+      id: uuidv4(),
+      requestId: id,
+      timestamp: Date.now(),
+      success: false,
+      payload: null
+    };
+
+    try {
+      // Set up timeout if specified
+      let timeoutId = null;
+      if (timeout) {
+        timeoutId = setTimeout(() => {
+          // If the request is still pending, reject it with a timeout error
+          if (pendingRequests.has(id)) {
+            pendingRequests.delete(id);
+            response.error = `Request timed out after ${timeout}ms`;
+            mainWindow.webContents.send('ipc-response', response);
+          }
+        }, timeout);
+
+        // Store the timeout ID so we can clear it if the request completes
+        pendingRequests.set(id, timeoutId);
+      }
+
+      // Process the request based on the channel
+      let result;
+      switch (channel) {
+        case 'minimize-window':
+          if (mainWindow) mainWindow.minimize();
+          result = { success: true };
+          break;
+
+        case 'maximize-window':
+          if (mainWindow) {
+            if (mainWindow.isMaximized()) {
+              mainWindow.unmaximize();
+            } else {
+              mainWindow.maximize();
+            }
+          }
+          result = { success: true, maximized: mainWindow ? mainWindow.isMaximized() : false };
+          break;
+
+        case 'close-window':
+          if (mainWindow) {
+            if (!app.isQuitting) {
+              mainWindow.hide();
+            } else {
+              mainWindow.close();
+            }
+          }
+          result = { success: true };
+          break;
+
+        case 'is-window-maximized':
+          result = { success: true, maximized: mainWindow ? mainWindow.isMaximized() : false };
+          break;
+
+        case 'echo':
+          // Simple echo handler for testing
+          result = {
+            success: true,
+            echo: payload,
+            timestamp: Date.now(),
+            received: true
+          };
+          break;
+
+        case 'show-open-dialog':
+          if (!mainWindow) {
+            result = { success: false, error: 'Main window not available' };
+          } else {
+            const dialogResult = await dialog.showOpenDialog(mainWindow, payload);
+            result = { success: true, ...dialogResult };
+          }
+          break;
+
+        case 'index-folder':
+          result = await indexFolder(payload);
+          break;
+
+        case 'index-all-folders':
+          result = await indexAllFolders(payload);
+          break;
+
+        // Add cases for all other existing IPC handlers
+
+        default:
+          result = { success: false, error: `Unknown channel: ${channel}` };
+      }
+
+      // Clear the timeout if it was set
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        pendingRequests.delete(id);
+      }
+
+      // Send the response
+      response.success = result.success !== false; // Default to true if not explicitly false
+      delete result.success; // Remove success from the payload
+      response.payload = result;
+
+      if (!response.success && result.error) {
+        response.error = result.error;
+      }
+
+    } catch (error) {
+      console.error(`Error processing request on channel ${channel}:`, error);
+      response.success = false;
+      response.error = error.message || 'Unknown error';
+
+      // Clear the timeout if it was set
+      if (pendingRequests.has(id)) {
+        clearTimeout(pendingRequests.get(id));
+        pendingRequests.delete(id);
+      }
+    }
+
+    // Send the response back to the renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ipc-response', response);
+    }
+
+    return response;
+  }
+
+  // Process a batch of requests
+  async function processBatchRequest(batchRequest) {
+    // Run the batch request through the middleware chain
+    try {
+      batchRequest = await runMiddlewareChain(batchRequest, true);
+    } catch (error) {
+      console.error('Error in middleware chain for batch request:', error);
+      // Continue with the original batch request if middleware fails
+    }
+
+    const { id, channel, payloads, timeout } = batchRequest;
+
+    // Create batch response object
+    const batchResponse = {
+      id: uuidv4(),
+      requestId: id,
+      timestamp: Date.now(),
+      success: true,
+      payloads: [],
+      errors: []
+    };
+
+    try {
+      // Set up timeout if specified
+      let timeoutId = null;
+      if (timeout) {
+        timeoutId = setTimeout(() => {
+          // If the batch request is still pending, reject it with a timeout error
+          if (pendingRequests.has(id)) {
+            pendingRequests.delete(id);
+            batchResponse.success = false;
+            batchResponse.errors = [`Batch request timed out after ${timeout}ms`];
+            mainWindow.webContents.send('ipc-batch-response', batchResponse);
+          }
+        }, timeout);
+
+        // Store the timeout ID so we can clear it if the request completes
+        pendingRequests.set(id, timeoutId);
+      }
+
+      // Process each payload in the batch
+      for (const payload of payloads) {
+        try {
+          // Create a single request for this payload
+          const singleRequest = {
+            id: uuidv4(),
+            timestamp: Date.now(),
+            channel,
+            payload
+          };
+
+          // Process the request
+          const response = await processRequest(singleRequest);
+
+          // Add the response payload to the batch response
+          batchResponse.payloads.push(response.payload);
+
+          // If any request fails, mark the batch as failed
+          if (!response.success) {
+            batchResponse.success = false;
+            batchResponse.errors.push(response.error || 'Unknown error');
+          }
+        } catch (error) {
+          console.error(`Error processing batch item:`, error);
+          batchResponse.success = false;
+          batchResponse.errors.push(error.message || 'Unknown error');
+          batchResponse.payloads.push(null);
+        }
+      }
+
+      // Clear the timeout if it was set
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        pendingRequests.delete(id);
+      }
+
+    } catch (error) {
+      console.error(`Error processing batch request:`, error);
+      batchResponse.success = false;
+      batchResponse.errors = [error.message || 'Unknown error'];
+
+      // Clear the timeout if it was set
+      if (pendingRequests.has(id)) {
+        clearTimeout(pendingRequests.get(id));
+        pendingRequests.delete(id);
+      }
+    }
+
+    // Send the batch response back to the renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ipc-batch-response', batchResponse);
+    }
+
+    return batchResponse;
+  }
+
+  // Handle IPC requests
+  ipcMain.handle('ipc-request', async (event, request) => {
+    return await processRequest(request);
+  });
+
+  // Handle one-way IPC messages (no response)
+  ipcMain.on('ipc-one-way', (event, request) => {
+    // Process the request but don't send a response
+    processRequest(request).catch(error => {
+      console.error('Error processing one-way request:', error);
+    });
+  });
+
+  // Handle batch IPC requests
+  ipcMain.handle('ipc-batch-request', async (event, batchRequest) => {
+    return await processBatchRequest(batchRequest);
+  });
+
+  // --- Service Registry Handlers ---
+
+  // Handle service discovery requests
+  ipcMain.handle('get-service', async (event, serviceName) => {
+    const service = getService(serviceName);
+    return {
+      success: !!service,
+      serviceName,
+      exists: !!service,
+      methods: service ? Object.keys(service) : []
+    };
+  });
+
+  // Handle service list requests
+  ipcMain.handle('list-services', async (event) => {
+    const services = listServices();
+    return {
+      success: true,
+      services
+    };
+  });
+
+  // Handle service method invocation
+  ipcMain.handle('invoke-service-method', async (event, request) => {
+    const { serviceName, methodName, args } = request;
+
+    // Get the service
+    const service = getService(serviceName);
+    if (!service) {
+      return {
+        success: false,
+        error: `Service '${serviceName}' not found`
+      };
+    }
+
+    // Check if the method exists
+    if (!service[methodName] || typeof service[methodName] !== 'function') {
+      return {
+        success: false,
+        error: `Method '${methodName}' not found in service '${serviceName}'`
+      };
+    }
+
+    try {
+      // Invoke the method
+      const result = await service[methodName](...(args || []));
+      return {
+        success: true,
+        result
+      };
+    } catch (error) {
+      console.error(`Error invoking service method ${serviceName}.${methodName}:`, error);
+      return {
+        success: false,
+        error: error.message || 'Unknown error'
+      };
+    }
+  });
+
+  // --- Register Example Services ---
+
+  // Register a system info service
+  registerService('systemInfo', {
+    getAppVersion: () => app.getVersion(),
+    getPlatform: () => process.platform,
+    getArch: () => process.arch,
+    getNodeVersion: () => process.versions.node,
+    getElectronVersion: () => process.versions.electron,
+    getChromeVersion: () => process.versions.chrome,
+    getMemoryUsage: () => process.memoryUsage(),
+    getCPUUsage: async () => {
+      return new Promise((resolve) => {
+        process.cpuUsage((cpuUsage) => {
+          resolve(cpuUsage);
+        });
+      });
+    }
+  });
+
+  // Register a file system service
+  registerService('fileSystem', {
+    readFile: async (filePath) => {
+      try {
+        return await fsPromises.readFile(filePath, 'utf8');
+      } catch (error) {
+        throw new Error(`Failed to read file: ${error.message}`);
+      }
+    },
+    writeFile: async (filePath, content) => {
+      try {
+        await fsPromises.writeFile(filePath, content, 'utf8');
+        return { success: true };
+      } catch (error) {
+        throw new Error(`Failed to write file: ${error.message}`);
+      }
+    },
+    listDirectory: async (directoryPath) => {
+      try {
+        const files = await fsPromises.readdir(directoryPath);
+        const fileStats = await Promise.all(
+          files.map(async (file) => {
+            const fullPath = path.join(directoryPath, file);
+            const stats = await fsPromises.stat(fullPath);
+            return {
+              name: file,
+              path: fullPath,
+              isDirectory: stats.isDirectory(),
+              size: stats.size,
+              created: stats.birthtime,
+              modified: stats.mtime
+            };
+          })
+        );
+        return fileStats;
+      } catch (error) {
+        throw new Error(`Failed to list directory: ${error.message}`);
+      }
+    }
+  });
+
+  // Register a database service
+  registerService('database', {
+    getStats: async () => {
+      try {
+        const stats = await db.getStats();
+        return stats;
+      } catch (error) {
+        throw new Error(`Failed to get database stats: ${error.message}`);
+      }
+    },
+    runQuery: async (query, params) => {
+      try {
+        // This is just an example - in a real app, you'd want to validate and sanitize queries
+        const result = await db.runQuery(query, params);
+        return result;
+      } catch (error) {
+        throw new Error(`Failed to run query: ${error.message}`);
+      }
+    }
   });
 
   // --- File Indexing and Watching Handlers ---

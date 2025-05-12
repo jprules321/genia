@@ -1,0 +1,16 @@
+<div class="notification-container">
+  <div *ngFor="let notification of notifications" class="notification-item">
+    <ejs-toast
+      [title]="notification.title"
+      [content]="notification.message"
+      [showCloseButton]="notification.dismissible"
+      [cssClass]="getNotificationClass(notification.type)"
+      (close)="removeNotification(notification.id)">
+      <ng-template #beforeOpen>
+        <div class="e-toast-icon">
+          <span [class]="getNotificationIcon(notification.type)"></span>
+        </div>
+      </ng-template>
+    </ejs-toast>
+  </div>
+</div>

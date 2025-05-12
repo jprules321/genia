@@ -4,12 +4,16 @@ import { SidebarComponent, SidebarAllModule } from '@syncfusion/ej2-angular-navi
 import { TextBoxAllModule } from '@syncfusion/ej2-angular-inputs';
 import { TreeViewComponent, TreeViewAllModule } from '@syncfusion/ej2-angular-navigations';
 import { ToolbarAllModule } from '@syncfusion/ej2-angular-navigations';
+import { ToastAllModule } from '@syncfusion/ej2-angular-notifications';
 import { filter } from 'rxjs/operators';
 import {EstimationService} from '../providers/estimation.service';
 import {ParseService} from '../providers/parse.service';
 import {ElectronWindowService} from '../providers/electron-window.service';
 import {IndexingService} from '../providers/indexing.service';
 import {ClickEventArgs} from '@syncfusion/ej2-navigations';
+import { NotificationsComponent } from '../components/notifications/notifications.component';
+import { HealthCheckService } from '../providers/health-check.service';
+import { FeatureFlagsService } from '../providers/feature-flags.service';
 
 // Interface for tree node data
 interface INodeData {
@@ -22,7 +26,16 @@ interface INodeData {
 
 @Component({
   selector: 'app-root',
-  imports: [SidebarAllModule, TextBoxAllModule, TreeViewAllModule, ToolbarAllModule, RouterOutlet],
+  standalone: true,
+  imports: [
+    SidebarAllModule,
+    TextBoxAllModule,
+    TreeViewAllModule,
+    ToolbarAllModule,
+    ToastAllModule,
+    RouterOutlet,
+    NotificationsComponent
+  ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
@@ -39,6 +52,9 @@ export class AppComponent implements OnInit {
     },
     {
       nodeId: '02', nodeText: 'Settings', iconCss: 'e-settings e-icons', routerLink: 'settings'
+    },
+    {
+      nodeId: '03', nodeText: 'Error Testing', iconCss: 'e-bug-report e-icons', routerLink: 'error-testing'
     }
   ];
 
@@ -58,7 +74,9 @@ export class AppComponent implements OnInit {
     private estimationService: EstimationService,
     private parse: ParseService,
     private electronWindowService: ElectronWindowService,
-    private indexingService: IndexingService
+    private indexingService: IndexingService,
+    private healthCheckService: HealthCheckService,
+    private featureFlagsService: FeatureFlagsService
   ) {}
 
   async ngOnInit() {
@@ -82,6 +100,19 @@ export class AppComponent implements OnInit {
         console.error('Error starting folder watching (app level):', error);
       }
     );
+
+    // Start health checks if enabled via feature flag
+    this.featureFlagsService.isEnabled('health-checks').subscribe(enabled => {
+      if (enabled) {
+        console.log('Starting health checks');
+        this.healthCheckService.startHealthChecks();
+
+        // Subscribe to health status updates
+        this.healthCheckService.getHealth().subscribe(health => {
+          console.log(`System health: ${health.status}`);
+        });
+      }
+    });
   }
 
   toolbarCliked(): void {

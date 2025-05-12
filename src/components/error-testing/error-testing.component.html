@@ -1,0 +1,60 @@
+<div class="error-testing-container">
+  <h1>Error Handling and Reliability Testing</h1>
+
+  <div class="status-panel">
+    <div class="status-item">
+      <h3>System Health</h3>
+      <div class="status-indicator" [ngClass]="getHealthStatusClass()">
+        {{ healthStatus }}
+      </div>
+      <button ejs-button cssClass="e-primary" (click)="runHealthChecks()">Run Health Checks</button>
+    </div>
+
+    <div class="status-item">
+      <h3>Circuit Breaker Status</h3>
+      <div class="status-indicator"
+           [ngClass]="{'status-healthy': circuitBreakerStatus === 'Half-Open/Closed',
+                      'status-unhealthy': circuitBreakerStatus === 'Open',
+                      'status-unknown': circuitBreakerStatus === 'Unknown'}">
+        {{ circuitBreakerStatus }}
+      </div>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Error Handling Tests</h2>
+    <div class="button-group">
+      <button ejs-button cssClass="e-danger" (click)="triggerGlobalError()">Trigger Global Error</button>
+      <button ejs-button cssClass="e-danger" (click)="triggerHttpError()">Trigger HTTP Error</button>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Reliability Tests</h2>
+    <div class="button-group">
+      <button ejs-button cssClass="e-primary" (click)="testRetryMechanism()">Test Retry Mechanism</button>
+      <button ejs-button cssClass="e-primary" (click)="testCircuitBreaker()">Test Circuit Breaker</button>
+      <button ejs-button cssClass="e-warning" (click)="testChaos()">Test Chaos</button>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Feature Flags</h2>
+    <div class="feature-flags-list">
+      <div *ngFor="let flag of featureFlags" class="feature-flag-item">
+        <div class="feature-flag-info">
+          <h4>{{ flag.name }}</h4>
+          <p>{{ flag.id }}</p>
+        </div>
+        <div class="feature-flag-toggle">
+          <ejs-switch [checked]="flag.enabled" (change)="toggleFeatureFlag(flag.id)"></ejs-switch>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <p>Check the browser console and notifications for test results.</p>
+  </div>
+</div>

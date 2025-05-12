@@ -6,6 +6,7 @@ import {authGuard} from '../providers/guards/auth.guard';
 import {ProjectGanttComponent} from '../components/project-gantt/project-gantt.component';
 import {FoldersComponent} from '../components/folders/folders.component';
 import {SettingsComponent} from '../components/settings/settings.component';
+import {ErrorTestingComponent} from '../components/error-testing/error-testing.component';
 
 export const routes: Routes = [
   { path: 'estimations', component: EstimationsComponent, canActivate: [authGuard] },
@@ -13,6 +14,7 @@ export const routes: Routes = [
   { path: 'projects', component: ProjectGanttComponent, canActivate: [authGuard] },
   { path: 'folders', component: FoldersComponent, canActivate: [authGuard] },
   { path: 'settings', component: SettingsComponent, canActivate: [authGuard] },
+  { path: 'error-testing', component: ErrorTestingComponent, canActivate: [authGuard] },
   { path: 'login', component: LoginComponent },
   { path: '',   redirectTo: '/folders', pathMatch: 'full', },
   { path: '**', redirectTo: '/login' } // Catch-all route

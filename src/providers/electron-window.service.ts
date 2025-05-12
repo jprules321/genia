@@ -46,6 +46,14 @@ declare global {
       // Database operations
       getDatabasePath: () => Promise<any>;
       clearAllIndexedFiles: () => Promise<any>;
+      // Enhanced IPC methods
+      sendRequest: (request: any) => Promise<any>;
+      sendOneWay: (request: any) => void;
+      sendBatchRequest: (request: any) => Promise<any>;
+      // Service registry methods
+      getService: (serviceName: string) => Promise<any>;
+      listServices: () => Promise<any>;
+      invokeServiceMethod: (serviceName: string, methodName: string, args?: any[]) => Promise<any>;
       // Event listeners
       on: (channel: string, callback: (...args: any[]) => void) => () => void;
       onIndexationProgress: (callback: (update: IndexationProgressUpdate) => void) => () => void;
@@ -330,6 +338,85 @@ export class ElectronWindowService {
   async clearAllIndexedFiles(): Promise<any> {
     if (this.isElectron) {
       return await window.electronAPI.clearAllIndexedFiles();
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Enhanced IPC methods
+   */
+
+  /**
+   * Send a request to the main process and get a response
+   * @param request The request object
+   * @returns Promise resolving to the response
+   */
+  async sendRequest(request: any): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.sendRequest(request);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Send a one-way message to the main process (no response)
+   * @param request The request object
+   */
+  sendOneWay(request: any): void {
+    if (this.isElectron) {
+      window.electronAPI.sendOneWay(request);
+    }
+  }
+
+  /**
+   * Send a batch request to the main process and get a response
+   * @param request The batch request object
+   * @returns Promise resolving to the batch response
+   */
+  async sendBatchRequest(request: any): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.sendBatchRequest(request);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Service Registry methods
+   */
+
+  /**
+   * Get information about a service
+   * @param serviceName The name of the service
+   * @returns Promise resolving to service information
+   */
+  async getService(serviceName: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.getService(serviceName);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * List all registered services
+   * @returns Promise resolving to a list of service names
+   */
+  async listServices(): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.listServices();
+    }
+    return { success: false, error: 'Not running in Electron', services: [] };
+  }
+
+  /**
+   * Invoke a method on a registered service
+   * @param serviceName The name of the service
+   * @param methodName The name of the method to invoke
+   * @param args Optional arguments to pass to the method
+   * @returns Promise resolving to the result of the method invocation
+   */
+  async invokeServiceMethod(serviceName: string, methodName: string, args?: any[]): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.invokeServiceMethod(serviceName, methodName, args);
     }
     return { success: false, error: 'Not running in Electron' };
   }

@@ -16,6 +16,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener(channel, subscription);
   },
 
+  // Enhanced IPC methods
+  sendRequest: (request) => {
+    return ipcRenderer.invoke('ipc-request', request);
+  },
+
+  sendOneWay: (request) => {
+    ipcRenderer.send('ipc-one-way', request);
+  },
+
+  sendBatchRequest: (request) => {
+    return ipcRenderer.invoke('ipc-batch-request', request);
+  },
+
+  // Service registry methods
+  getService: (serviceName) => {
+    return ipcRenderer.invoke('get-service', serviceName);
+  },
+
+  listServices: () => {
+    return ipcRenderer.invoke('list-services');
+  },
+
+  invokeServiceMethod: (serviceName, methodName, args) => {
+    return ipcRenderer.invoke('invoke-service-method', { serviceName, methodName, args });
+  },
+
   // Receive indexation progress updates
   onIndexationProgress: (func) => {
     const subscription = (event, ...args) => func(...args);

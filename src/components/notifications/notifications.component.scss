@@ -1,0 +1,98 @@
+.notification-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 350px;
+  max-height: 80vh;
+  overflow-y: auto;
+  pointer-events: none; /* Allow clicking through the container */
+}
+
+.notification-item {
+  pointer-events: auto; /* Re-enable pointer events for the actual notifications */
+  margin-bottom: 10px;
+  animation: slide-in 0.3s ease-out;
+}
+
+@keyframes slide-in {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Customize Syncfusion Toast styles */
+::ng-deep {
+  .e-toast-container {
+    max-width: 100%;
+  }
+
+  .e-toast {
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .e-toast-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+  }
+
+  .e-toast .e-toast-message {
+    word-break: break-word;
+  }
+
+  /* Success toast */
+  .e-toast.e-success {
+    background-color: #e6f7e6;
+    border-color: #51d051;
+    color: #1e7e1e;
+  }
+
+  /* Info toast */
+  .e-toast.e-info {
+    background-color: #e6f2ff;
+    border-color: #4d94ff;
+    color: #0066cc;
+  }
+
+  /* Warning toast */
+  .e-toast.e-warning {
+    background-color: #fff8e6;
+    border-color: #ffcc66;
+    color: #cc7a00;
+  }
+
+  /* Error toast */
+  .e-toast.e-danger {
+    background-color: #ffe6e6;
+    border-color: #ff6666;
+    color: #cc0000;
+  }
+
+  /* Icons */
+  .e-check-circle {
+    color: #1e7e1e;
+  }
+
+  .e-info-circle {
+    color: #0066cc;
+  }
+
+  .e-exclamation-triangle {
+    color: #cc7a00;
+  }
+
+  .e-exclamation-circle {
+    color: #cc0000;
+  }
+}
