@@ -538,6 +538,292 @@ function closeDatabase() {
   });
 }
 
+// Check database integrity
+function checkDatabaseIntegrity(thorough = false) {
+  return new Promise((resolve, reject) => {
+    console.log(`Checking database integrity (thorough: ${thorough})`);
+
+    // Start with a basic integrity check
+    db.get("PRAGMA integrity_check", (err, result) => {
+      if (err) {
+        console.error('Error running integrity check:', err.message);
+        reject(err);
+        return;
+      }
+
+      const isIntegrityOk = result.integrity_check === 'ok';
+      console.log(`Basic integrity check result: ${isIntegrityOk ? 'OK' : 'FAILED'}`);
+
+      // If not thorough or basic check failed, return the result
+      if (!thorough || !isIntegrityOk) {
+        resolve({
+          integrity: isIntegrityOk,
+          issues: isIntegrityOk ? [] : [{ type: 'integrity', message: 'Database integrity check failed', count: 1 }]
+        });
+        return;
+      }
+
+      // If thorough, perform additional checks
+      const issues = [];
+
+      // Check for orphaned files (files without a valid folder)
+      db.all(`
+        SELECT COUNT(*) as count
+        FROM indexed_files
+        WHERE folder_id NOT IN (
+          SELECT DISTINCT folder_id FROM indexed_files GROUP BY folder_id
+        )
+      `, [], (err, orphanedResult) => {
+        if (err) {
+          console.error('Error checking for orphaned files:', err.message);
+          issues.push({ type: 'query', message: `Error checking for orphaned files: ${err.message}`, count: 1 });
+        } else if (orphanedResult[0].count > 0) {
+          console.log(`Found ${orphanedResult[0].count} orphaned files`);
+          issues.push({ type: 'orphaned', message: 'Orphaned files found', count: orphanedResult[0].count });
+        }
+
+        // Check for duplicate file paths
+        db.all(`
+          SELECT path, COUNT(*) as count
+          FROM indexed_files
+          GROUP BY path
+          HAVING count > 1
+        `, [], (err, duplicateResult) => {
+          if (err) {
+            console.error('Error checking for duplicate files:', err.message);
+            issues.push({ type: 'query', message: `Error checking for duplicate files: ${err.message}`, count: 1 });
+          } else if (duplicateResult.length > 0) {
+            const totalDuplicates = duplicateResult.reduce((sum, row) => sum + row.count - 1, 0);
+            console.log(`Found ${totalDuplicates} duplicate files (${duplicateResult.length} unique paths)`);
+            issues.push({ type: 'duplicate', message: 'Duplicate file paths found', count: totalDuplicates });
+          }
+
+          // Check for null or empty content
+          db.all(`
+            SELECT COUNT(*) as count
+            FROM indexed_files
+            WHERE content IS NULL OR content = ''
+          `, [], (err, emptyResult) => {
+            if (err) {
+              console.error('Error checking for empty content:', err.message);
+              issues.push({ type: 'query', message: `Error checking for empty content: ${err.message}`, count: 1 });
+            } else if (emptyResult[0].count > 0) {
+              console.log(`Found ${emptyResult[0].count} files with empty content`);
+              issues.push({ type: 'empty', message: 'Files with empty content found', count: emptyResult[0].count });
+            }
+
+            // Return the final result
+            resolve({
+              integrity: isIntegrityOk && issues.length === 0,
+              issues: issues
+            });
+          });
+        });
+      });
+    });
+  });
+}
+
+// Repair database issues
+function repairDatabase() {
+  return new Promise((resolve, reject) => {
+    console.log('Repairing database issues');
+
+    // Start a transaction for all repairs
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION', (beginErr) => {
+        if (beginErr) {
+          console.error('Error beginning repair transaction:', beginErr.message);
+          reject(beginErr);
+          return;
+        }
+
+        let repairedIssues = 0;
+        let remainingIssues = 0;
+
+        // Remove orphaned files
+        db.run(`
+          DELETE FROM indexed_files
+          WHERE folder_id NOT IN (
+            SELECT DISTINCT folder_id FROM indexed_files GROUP BY folder_id
+          )
+        `, function(err) {
+          if (err) {
+            console.error('Error removing orphaned files:', err.message);
+            db.run('ROLLBACK', () => {
+              reject(err);
+            });
+            return;
+          }
+
+          const orphanedRemoved = this.changes;
+          repairedIssues += orphanedRemoved;
+          console.log(`Removed ${orphanedRemoved} orphaned files`);
+
+          // Remove duplicate files (keep the most recent version)
+          db.run(`
+            DELETE FROM indexed_files
+            WHERE id IN (
+              SELECT a.id
+              FROM indexed_files a
+              JOIN (
+                SELECT path, MIN(id) as keep_id
+                FROM indexed_files
+                GROUP BY path
+                HAVING COUNT(*) > 1
+              ) b ON a.path = b.path
+              WHERE a.id != b.keep_id
+            )
+          `, function(err) {
+            if (err) {
+              console.error('Error removing duplicate files:', err.message);
+              db.run('ROLLBACK', () => {
+                reject(err);
+              });
+              return;
+            }
+
+            const duplicatesRemoved = this.changes;
+            repairedIssues += duplicatesRemoved;
+            console.log(`Removed ${duplicatesRemoved} duplicate files`);
+
+            // Commit the transaction
+            db.run('COMMIT', (commitErr) => {
+              if (commitErr) {
+                console.error('Error committing repair transaction:', commitErr.message);
+                db.run('ROLLBACK', () => {
+                  reject(commitErr);
+                });
+                return;
+              }
+
+              // Check for any remaining issues
+              checkDatabaseIntegrity(true).then(result => {
+                remainingIssues = result.issues.reduce((sum, issue) => sum + issue.count, 0);
+
+                resolve({
+                  repaired: repairedIssues > 0,
+                  repairedIssues,
+                  remainingIssues,
+                  issues: result.issues
+                });
+              }).catch(checkErr => {
+                console.error('Error checking database after repair:', checkErr.message);
+                resolve({
+                  repaired: repairedIssues > 0,
+                  repairedIssues,
+                  error: checkErr.message
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+}
+
+// Optimize database
+function optimizeDatabase() {
+  return new Promise((resolve, reject) => {
+    console.log('Optimizing database');
+
+    // Run VACUUM to reclaim space and defragment the database
+    db.run('VACUUM', (err) => {
+      if (err) {
+        console.error('Error running VACUUM:', err.message);
+        reject(err);
+        return;
+      }
+
+      // Reindex the database to optimize queries
+      db.run('REINDEX', (err) => {
+        if (err) {
+          console.error('Error running REINDEX:', err.message);
+          reject(err);
+          return;
+        }
+
+        // Analyze the database to update statistics
+        db.run('ANALYZE', (err) => {
+          if (err) {
+            console.error('Error running ANALYZE:', err.message);
+            reject(err);
+            return;
+          }
+
+          resolve({
+            success: true,
+            message: 'Database optimized successfully'
+          });
+        });
+      });
+    });
+  });
+}
+
+// Get database statistics
+function getDatabaseStats() {
+  return new Promise((resolve, reject) => {
+    console.log('Getting database statistics');
+
+    // Get total number of files
+    db.get('SELECT COUNT(*) as count FROM indexed_files', (err, totalResult) => {
+      if (err) {
+        console.error('Error getting total files count:', err.message);
+        reject(err);
+        return;
+      }
+
+      const totalFiles = totalResult.count;
+
+      // Get total number of folders
+      db.get('SELECT COUNT(DISTINCT folder_id) as count FROM indexed_files', (err, folderResult) => {
+        if (err) {
+          console.error('Error getting folder count:', err.message);
+          reject(err);
+          return;
+        }
+
+        const totalFolders = folderResult.count;
+
+        // Get total size of content
+        db.get('SELECT SUM(LENGTH(content)) as total_size FROM indexed_files', (err, sizeResult) => {
+          if (err) {
+            console.error('Error getting content size:', err.message);
+            reject(err);
+            return;
+          }
+
+          const totalSize = sizeResult.total_size || 0;
+
+          // Check for any issues
+          checkDatabaseIntegrity(false).then(integrityResult => {
+            resolve({
+              totalFiles,
+              totalFolders,
+              totalSize,
+              lastUpdated: new Date(),
+              integrityStatus: integrityResult.integrity ? 'ok' : 'warning',
+              issues: integrityResult.issues
+            });
+          }).catch(integrityErr => {
+            console.error('Error checking integrity for stats:', integrityErr.message);
+            resolve({
+              totalFiles,
+              totalFolders,
+              totalSize,
+              lastUpdated: new Date(),
+              integrityStatus: 'error',
+              issues: [{ type: 'integrity', message: `Error checking integrity: ${integrityErr.message}`, count: 1 }]
+            });
+          });
+        });
+      });
+    });
+  });
+}
+
 // Export the database functions
 module.exports = {
   getAllIndexedFiles,
@@ -547,5 +833,9 @@ module.exports = {
   removeFileFromIndex,
   removeFolderFromIndex,
   clearAllIndexedFiles,
+  checkDatabaseIntegrity,
+  repairDatabase,
+  optimizeDatabase,
+  getDatabaseStats,
   closeDatabase
 };
