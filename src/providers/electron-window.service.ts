@@ -33,9 +33,23 @@ declare global {
       checkFolderIndexable: (folderPath: string) => Promise<any>;
       removeFileFromIndex: (filePath: string, folderId: string) => Promise<any>;
       removeFolderFromIndex: (folderPath: string) => Promise<any>;
+      // Database operations for indexed files
+      saveIndexedFile: (file: any) => Promise<any>;
+      verifyFileSaved: (fileId: string, folderId: string) => Promise<any>;
+      saveIndexedFilesBatch: (files: any[]) => Promise<any>;
+      saveIndexedFilesBatchWithTransaction: (files: any[]) => Promise<any>;
+      verifyFilesBatchSaved: (fileIds: any[]) => Promise<any>;
+      getDatabaseStats: () => Promise<any>;
+      checkDatabaseIntegrity: (thorough: boolean) => Promise<any>;
+      repairDatabase: () => Promise<any>;
+      optimizeDatabase: () => Promise<any>;
+      // Settings operations
+      getIndexingSettings: () => Promise<any>;
+      saveIndexingSettings: (settings: any) => Promise<any>;
       // Indexation error log methods
       getIndexationErrorLog: (folderPath?: string) => Promise<any>;
       clearIndexationErrorLog: (folderPath?: string) => Promise<any>;
+      logIndexationError: (error: any) => Promise<any>;
       // Get indexed files
       getIndexedFilesForFolder: (folderPath: string) => Promise<any>;
       sendIndexedFilesResponse: (response: any) => Promise<any>;
@@ -43,6 +57,15 @@ declare global {
       sendFolderIdResponse: (response: any) => Promise<any>;
       // Directory operations
       openDirectory: (directoryPath: string) => Promise<any>;
+      // File system operations
+      listFilesInDirectory: (folderPath: string, recursive?: boolean) => Promise<any>;
+      listFilesAndDirs: (dirPath: string) => Promise<any>;
+      getFileStats: (filePath: string) => Promise<any>;
+      watchFolder: (folderPath: string, recursive?: boolean) => Promise<any>;
+      onFileChange: (callback: (event: any) => void) => void;
+      unwatchFolder: (folderPath: string) => Promise<any>;
+      watchFile: (filePath: string) => Promise<any>;
+      unwatchFile: (filePath: string) => Promise<any>;
       // Database operations
       getDatabasePath: () => Promise<any>;
       clearAllIndexedFiles: () => Promise<any>;
@@ -449,6 +472,243 @@ export class ElectronWindowService {
       return await window.electronAPI.listServices();
     }
     return { success: false, error: 'Not running in Electron', services: [] };
+  }
+
+  /**
+   * Save an indexed file to the database
+   * @param file The file to save
+   * @returns Promise resolving to the result of the save operation
+   */
+  async saveIndexedFile(file: any): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.saveIndexedFile(file);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Verify that a file was saved correctly
+   * @param fileId The ID of the file to verify
+   * @param folderId The ID of the folder containing the file
+   * @returns Promise resolving to the verification result
+   */
+  async verifyFileSaved(fileId: string, folderId: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.verifyFileSaved(fileId, folderId);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Save multiple indexed files to the database in a batch
+   * @param files Array of files to save
+   * @returns Promise resolving to the result of the batch save operation
+   */
+  async saveIndexedFilesBatch(files: any[]): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.saveIndexedFilesBatch(files);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Verify that a batch of files was saved correctly
+   * @param fileIds Array of file IDs to verify
+   * @returns Promise resolving to the verification result
+   */
+  async verifyFilesBatchSaved(fileIds: any[]): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.verifyFilesBatchSaved(fileIds);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Get database statistics
+   * @returns Promise resolving to database statistics
+   */
+  async getDatabaseStats(): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.getDatabaseStats();
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Check database integrity
+   * @param thorough Whether to run a thorough check
+   * @returns Promise resolving to integrity check results
+   */
+  async checkDatabaseIntegrity(thorough: boolean = false): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.checkDatabaseIntegrity(thorough);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Repair database issues
+   * @returns Promise resolving to repair results
+   */
+  async repairDatabase(): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.repairDatabase();
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Optimize database (vacuum, reindex, etc.)
+   * @returns Promise resolving to optimization results
+   */
+  async optimizeDatabase(): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.optimizeDatabase();
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * List files in a directory
+   * @param folderPath Path of the folder to list files from
+   * @param recursive Whether to include files in subfolders
+   * @returns Promise resolving to the list of files
+   */
+  async listFilesInDirectory(folderPath: string, recursive: boolean = true): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.listFilesInDirectory(folderPath, recursive);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * List files and directories in a folder
+   * @param dirPath Path of the directory to list
+   * @returns Promise resolving to the list of files and directories
+   */
+  async listFilesAndDirs(dirPath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.listFilesAndDirs(dirPath);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Get file statistics
+   * @param filePath Path of the file
+   * @returns Promise resolving to file statistics
+   */
+  async getFileStats(filePath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.getFileStats(filePath);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Watch a folder for changes
+   * @param folderPath Path of the folder to watch
+   * @param recursive Whether to watch subfolders recursively
+   * @returns Promise resolving to the result of the watch operation
+   */
+  async watchFolder(folderPath: string, recursive: boolean = true): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.watchFolder(folderPath, recursive);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Register a callback for file change events
+   * @param callback Function to call when a file changes
+   */
+  async onFileChange(callback: (event: any) => void): Promise<void> {
+    if (this.isElectron) {
+      window.electronAPI.onFileChange(callback);
+    }
+  }
+
+  /**
+   * Stop watching a folder
+   * @param folderPath Path of the folder to stop watching
+   * @returns Promise resolving to the result of the unwatch operation
+   */
+  async unwatchFolder(folderPath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.unwatchFolder(folderPath);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Watch a specific file for changes
+   * @param filePath Path of the file to watch
+   * @returns Promise resolving to the result of the watch operation
+   */
+  async watchFile(filePath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.watchFile(filePath);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Stop watching a specific file
+   * @param filePath Path of the file to stop watching
+   * @returns Promise resolving to the result of the unwatch operation
+   */
+  async unwatchFile(filePath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.unwatchFile(filePath);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Save indexed files batch with transaction support
+   * @param files Array of files to save
+   * @returns Promise resolving to the result of the batch save operation
+   */
+  async saveIndexedFilesBatchWithTransaction(files: any[]): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.saveIndexedFilesBatchWithTransaction(files);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Get indexing settings
+   * @returns Promise resolving to the current indexing settings
+   */
+  async getIndexingSettings(): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.getIndexingSettings();
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Save indexing settings
+   * @param settings The settings to save
+   * @returns Promise resolving to the result of the save operation
+   */
+  async saveIndexingSettings(settings: any): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.saveIndexingSettings(settings);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Log an indexation error
+   * @param error The error to log
+   * @returns Promise resolving to the result of the log operation
+   */
+  async logIndexationError(error: any): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.logIndexationError(error);
+    }
+    return { success: false, error: 'Not running in Electron' };
   }
 
   /**

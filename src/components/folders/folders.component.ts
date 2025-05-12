@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { FoldersService } from '../../providers/folders.service';
 import { ElectronWindowService } from '../../providers/electron-window.service';
 import { IndexingService, IndexingStatus, IndexationError } from '../../providers/indexing.service';
+import { IndexingState } from '../../providers/indexing-status.service';
 import { GridAllModule, GridComponent } from '@syncfusion/ej2-angular-grids';
 import { ButtonAllModule } from '@syncfusion/ej2-angular-buttons';
 import { TextBoxAllModule } from '@syncfusion/ej2-angular-inputs';
@@ -67,7 +68,7 @@ export class FoldersComponent implements OnInit, OnDestroy {
     private indexingService: IndexingService
   ) {
     this.indexingStatus = this.indexingService.getIndexingStatus();
-    this.isIndexing = this.indexingStatus.inProgress;
+    this.isIndexing = [IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(this.indexingStatus.state);
   }
 
   ngOnInit(): void {
@@ -115,7 +116,7 @@ export class FoldersComponent implements OnInit, OnDestroy {
       const newStatus = this.indexingService.getIndexingStatus();
       const wasIndexing = this.isIndexing;
       this.indexingStatus = newStatus;
-      this.isIndexing = newStatus.inProgress;
+      this.isIndexing = [IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(newStatus.state);
 
       // Only update folder progress if indexing is in progress or just completed
       if ((this.isIndexing || wasIndexing !== this.isIndexing) && this.folders && this.folders.length > 0) {
@@ -342,7 +343,7 @@ export class FoldersComponent implements OnInit, OnDestroy {
     const updatedFolders = this.folders.map(folder => {
       // Get the current indexing status
       const indexingStatus = this.indexingService.getIndexingStatus();
-      const isCurrentlyIndexing = indexingStatus.inProgress && indexingStatus.currentFolder === folder.name;
+      const isCurrentlyIndexing = [IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(indexingStatus.state) && indexingStatus.currentFolder === folder.name;
 
       // Get folder stats
       const stats = this.indexingService.getFolderIndexingStats(folder.id);
@@ -670,7 +671,7 @@ export class FoldersComponent implements OnInit, OnDestroy {
 
     // Check if the folder is currently being indexed and stop indexation if needed
     const indexingStatus = this.indexingService.getIndexingStatus();
-    if (indexingStatus.inProgress && indexingStatus.currentFolder === folderToDelete.name) {
+    if ([IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(indexingStatus.state) && indexingStatus.currentFolder === folderToDelete.name) {
       console.log(`Stopping indexation for folder ${folderToDelete.name} before deletion`);
       this.indexingService.stopFolderIndexation(folderToDelete.path).subscribe(
         success => {
@@ -736,7 +737,7 @@ export class FoldersComponent implements OnInit, OnDestroy {
 
               // Check if this was the folder being indexed and reset global indexation status if needed
               const indexingStatus = this.indexingService.getIndexingStatus();
-              if (indexingStatus.inProgress && indexingStatus.currentFolder === folderToDelete.name) {
+              if ([IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(indexingStatus.state) && indexingStatus.currentFolder === folderToDelete.name) {
                 // Reset the global indexation status
                 console.log(`Resetting global indexation status for folder ${folderToDelete.name}`);
                 this.indexingService.resetIndexingStatus();
@@ -784,7 +785,7 @@ export class FoldersComponent implements OnInit, OnDestroy {
 
               // Check if this was the folder being indexed and reset global indexation status if needed
               const indexingStatus = this.indexingService.getIndexingStatus();
-              if (indexingStatus.inProgress && indexingStatus.currentFolder === folderToDelete.name) {
+              if ([IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(indexingStatus.state) && indexingStatus.currentFolder === folderToDelete.name) {
                 // Reset the global indexation status
                 console.log(`Resetting global indexation status for folder ${folderToDelete.name}`);
                 this.indexingService.resetIndexingStatus();
