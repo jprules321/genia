@@ -1,0 +1,121 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Lint
+      run: npm run lint
+
+    - name: Build
+      run: npm run build
+
+    - name: Test
+      run: npm test -- --watch=false --browsers=ChromeHeadless
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-artifacts
+        path: dist/
+
+  electron-build:
+    needs: build-and-test
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18.x
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build Electron (Windows)
+      run: npm run electron:build:win
+
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-installer
+        path: release/*.exe
+
+  # Uncomment these jobs if you need to build for macOS and Linux
+  # Note: Building for macOS requires a macOS runner
+  # electron-build-mac:
+  #   needs: build-and-test
+  #   runs-on: macos-latest
+  #
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #
+  #   - name: Use Node.js 18.x
+  #     uses: actions/setup-node@v3
+  #     with:
+  #       node-version: 18.x
+  #       cache: 'npm'
+  #
+  #   - name: Install dependencies
+  #     run: npm ci
+  #
+  #   - name: Build Electron (macOS)
+  #     run: npm run electron:build:mac
+  #
+  #   - name: Upload macOS artifacts
+  #     uses: actions/upload-artifact@v3
+  #     with:
+  #       name: macos-installer
+  #       path: release/*.dmg
+  #
+  # electron-build-linux:
+  #   needs: build-and-test
+  #   runs-on: ubuntu-latest
+  #
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #
+  #   - name: Use Node.js 18.x
+  #     uses: actions/setup-node@v3
+  #     with:
+  #       node-version: 18.x
+  #       cache: 'npm'
+  #
+  #   - name: Install dependencies
+  #     run: npm ci
+  #
+  #   - name: Build Electron (Linux)
+  #     run: npm run electron:build:linux
+  #
+  #   - name: Upload Linux artifacts
+  #     uses: actions/upload-artifact@v3
+  #     with:
+  #       name: linux-installer
+  #       path: |
+  #         release/*.AppImage
+  #         release/*.deb

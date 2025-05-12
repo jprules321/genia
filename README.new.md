@@ -44,7 +44,7 @@ The following improvements have been made to the project:
    git clone https://github.com/yourusername/genia.git
    cd genia
 ```
-2. Install dependencies:
+1. Install dependencies:
 ``` bash
    npm install
 ```

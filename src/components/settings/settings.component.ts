@@ -5,6 +5,14 @@ import { ElectronWindowService } from '../../providers/electron-window.service';
 import { ButtonAllModule } from '@syncfusion/ej2-angular-buttons';
 import { TextBoxAllModule } from '@syncfusion/ej2-angular-inputs';
 
+/**
+ * SettingsComponent handles the application settings UI
+ *
+ * This component allows users to:
+ * - View the current database location
+ * - Open the database directory in the file explorer
+ * - (Future) Configure other application settings
+ */
 @Component({
   selector: 'app-settings',
   standalone: true,
@@ -13,20 +21,42 @@ import { TextBoxAllModule } from '@syncfusion/ej2-angular-inputs';
   styleUrls: ['./settings.component.scss']
 })
 export class SettingsComponent implements OnInit {
-  // Database settings
+  /** Path to the database file */
   public databasePath: string = '';
+
+  /** Directory containing the database file */
   public databaseDir: string = '';
+
+  /** Flag indicating if data is being loaded */
   public isLoading: boolean = false;
+
+  /** Error message to display to the user */
   public errorMessage: string = '';
 
+  /**
+   * Creates an instance of SettingsComponent
+   * @param electronWindowService Service for interacting with the Electron window
+   */
   constructor(private electronWindowService: ElectronWindowService) {}
 
+  /**
+   * Lifecycle hook that is called after data-bound properties are initialized
+   * Loads the database path when the component is initialized
+   */
   ngOnInit(): void {
     this.loadDatabasePath();
   }
 
   /**
-   * Load the database path from the Electron main process
+   * Loads the database path from the Electron main process
+   *
+   * This method:
+   * 1. Sets the loading state
+   * 2. Requests the database path from the Electron main process
+   * 3. Updates the component properties with the result
+   * 4. Handles any errors that occur during the process
+   *
+   * @returns A promise that resolves when the operation is complete
    */
   async loadDatabasePath(): Promise<void> {
     this.isLoading = true;
@@ -50,7 +80,14 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Open the database directory in the file explorer
+   * Opens the database directory in the system's file explorer
+   *
+   * This method:
+   * 1. Validates that the database directory path is available
+   * 2. Requests the Electron main process to open the directory
+   * 3. Handles any errors that occur during the process
+   *
+   * @returns A promise that resolves when the operation is complete
    */
   async openDatabaseDirectory(): Promise<void> {
     if (!this.databaseDir) {

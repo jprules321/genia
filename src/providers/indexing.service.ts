@@ -4,6 +4,9 @@ import { map, catchError, tap, switchMap } from 'rxjs/operators';
 import { FoldersService } from './folders.service';
 import { ElectronWindowService, IndexationProgressUpdate } from './electron-window.service';
 import { Folder } from '../components/folders/folders.component';
+import { FileIndexingService } from './file-indexing.service';
+import { IndexDatabaseService } from './index-database.service';
+import { IncrementalIndexingService } from './incremental-indexing.service';
 
 // Define interfaces for our indexing system
 export interface IndexedFile {
@@ -131,7 +134,10 @@ export class IndexingService implements OnDestroy {
 
   constructor(
     private foldersService: FoldersService,
-    private electronWindowService: ElectronWindowService
+    private electronWindowService: ElectronWindowService,
+    private fileIndexingService: FileIndexingService,
+    private indexDatabaseService: IndexDatabaseService,
+    private incrementalIndexingService: IncrementalIndexingService
   ) {
     // Initialize status from localStorage if available
     const savedStatus = localStorage.getItem(this.STATUS_KEY);
@@ -418,6 +424,7 @@ export class IndexingService implements OnDestroy {
    * Start indexing a specific folder
    * @param folder The folder to index
    * @param cancellationToken Optional cancellation token to cancel the operation
+   * @deprecated This method should be refactored to use FileIndexingService and IncrementalIndexingService
    */
   indexFolder(folder: Folder, cancellationToken?: CancellationToken): Observable<boolean> {
     // Create a new cancellation token if one wasn't provided
@@ -485,6 +492,7 @@ export class IndexingService implements OnDestroy {
   /**
    * Start indexing all folders
    * @param cancellationToken Optional cancellation token to cancel the operation
+   * @deprecated This method should be refactored to use FileIndexingService and IncrementalIndexingService
    */
   indexAllFolders(cancellationToken?: CancellationToken): Observable<boolean> {
     return this.foldersService.getFolders().pipe(
@@ -702,6 +710,7 @@ export class IndexingService implements OnDestroy {
    * This removes all indexed files for the folder and stops watching the folder
    * @param folder The folder to remove from the index
    * @returns Observable that completes when the folder is removed from the index
+   * @deprecated Use IndexDatabaseService.removeFolderFromIndex instead
    */
   removeFolderFromIndex(folder: Folder): Observable<boolean> {
     // Check if folder is valid and has a path
@@ -712,19 +721,17 @@ export class IndexingService implements OnDestroy {
 
     const folderName = folder.name || 'Unknown folder';
     const folderPath = folder.path;
+    const folderId = folder.id || '';
 
     console.log(`Removing folder from index: ${folderName} (${folderPath})`);
 
-    // Call the Electron main process to remove the folder from the watchers and database
-    return from(this.electronWindowService.removeFolderFromIndex(folderPath)).pipe(
-      map(result => {
-        if (result.success) {
+    // Delegate to IndexDatabaseService
+    return this.indexDatabaseService.removeFolderFromIndex(folderId, folderPath).pipe(
+      tap(success => {
+        if (success) {
           console.log(`Successfully removed folder from index: ${folderName}`);
-          console.log(`Removed ${result.filesRemoved} files from database for folder: ${folderName}`);
-          return true;
         } else {
-          console.error(`Error removing folder from index: ${folderName}`, result.error);
-          return false;
+          console.error(`Error removing folder from index: ${folderName}`);
         }
       }),
       catchError(error => {
@@ -757,43 +764,19 @@ export class IndexingService implements OnDestroy {
    * @param folderPath Optional folder path associated with the error
    * @param filePath Optional file path associated with the error
    * @returns An IndexationError object with categorized error information
+   * @deprecated Use FileIndexingService.categorizeError instead
    */
   private categorizeError(error: any, folderPath?: string, filePath?: string): IndexationError {
-    const errorMessage = error?.message || error?.toString() || 'Unknown error';
-    let errorType = IndexationErrorType.UNKNOWN;
-    let details = null;
-
-    // Categorize based on error message patterns
-    if (errorMessage.includes('EACCES') || errorMessage.includes('permission')) {
-      errorType = IndexationErrorType.PERMISSION;
-    } else if (errorMessage.includes('ENOENT') || errorMessage.includes('no such file') ||
-               errorMessage.includes('EISDIR') || errorMessage.includes('ENOTDIR')) {
-      errorType = IndexationErrorType.FILE_SYSTEM;
-    } else if (errorMessage.includes('network') || errorMessage.includes('connection') ||
-               errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
-      errorType = IndexationErrorType.NETWORK;
-    } else if (errorMessage.includes('database') || errorMessage.includes('SQL') ||
-               errorMessage.includes('query')) {
-      errorType = IndexationErrorType.DATABASE;
-    } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
-      errorType = IndexationErrorType.TIMEOUT;
-    }
-
-    // Extract additional details if available
-    if (error.code) {
-      details = { code: error.code };
-    }
-    if (error.stack) {
-      details = { ...details, stack: error.stack };
-    }
+    // Use FileIndexingService for error categorization
+    const categorizedError = this.fileIndexingService.categorizeError(error, folderPath, filePath);
 
     return {
       timestamp: new Date(),
       folderPath: folderPath || 'unknown',
       filePath: filePath || 'unknown',
-      error: errorMessage,
-      errorType,
-      details
+      error: categorizedError.error,
+      errorType: categorizedError.errorType,
+      details: categorizedError.details
     };
   }
 
