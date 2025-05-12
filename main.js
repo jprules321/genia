@@ -4,6 +4,7 @@ const url = require('url');
 const fs = require('fs');
 const fsPromises = fs.promises;
 const chokidar = require('chokidar');
+const db = require('./db');
 
 // Global watcher instance
 let folderWatchers = [];
@@ -16,6 +17,9 @@ let indexationErrorLog = {
   errors: [],
   lastUpdated: null
 };
+
+// Global flag to track if indexation should continue for each folder
+let folderIndexingStatus = new Map();
 
 // File queue for batch processing
 let fileQueue = [];
@@ -65,8 +69,17 @@ async function processBatch() {
   // Take a batch of up to 50 files
   const batch = fileQueue.splice(0, 50);
 
-  // Process the batch
-  for (const item of batch) {
+  // Filter out files for folders that are no longer being indexed
+  const validBatch = batch.filter(item => {
+    // Check if the folder is still being indexed
+    const isBeingIndexed = foldersBeingIndexed.some(f => f.folderPath === item.folderPath);
+    const isIndexingActive = !folderIndexingStatus.has(item.folderPath) || folderIndexingStatus.get(item.folderPath);
+
+    return isBeingIndexed && isIndexingActive;
+  });
+
+  // Process the filtered batch
+  for (const item of validBatch) {
     try {
       if (item.action === 'add' || item.action === 'change') {
         await indexFile(item.path, item.folderId, item.folderPath);
@@ -345,6 +358,90 @@ if (!gotTheLock) {
     return indexableExtensions.includes(ext);
   }
 
+  // Queue for batching file save messages to renderer
+  let fileSaveQueue = [];
+  let fileSaveTimer = null;
+  const FILE_SAVE_BATCH_SIZE = 50;
+  const FILE_SAVE_BATCH_DELAY = 1000; // 1 second
+
+  // Process file save queue
+  async function processFileSaveQueue() {
+    if (fileSaveQueue.length === 0) {
+      fileSaveTimer = null;
+      return;
+    }
+
+    // Take a batch of files to save
+    const batch = fileSaveQueue.splice(0, FILE_SAVE_BATCH_SIZE);
+
+    // Filter out files for folders that are no longer being indexed
+    const validBatch = batch.filter(file => {
+      // Extract folderPath from the file object
+      const folderPath = file.folderPath || '';
+      if (!folderPath) return false;
+
+      // Check if the folder is still being indexed
+      const isBeingIndexed = foldersBeingIndexed.some(f => f.folderPath === folderPath);
+      const isIndexingActive = !folderIndexingStatus.has(folderPath) || folderIndexingStatus.get(folderPath);
+
+      return isBeingIndexed && isIndexingActive;
+    });
+
+    // If no valid files to save, skip this batch
+    if (validBatch.length === 0) {
+      console.log('No valid files to save in this batch (folders no longer being indexed)');
+
+      // Schedule next batch if there are more files
+      if (fileSaveQueue.length > 0) {
+        fileSaveTimer = setTimeout(processFileSaveQueue, FILE_SAVE_BATCH_DELAY);
+      } else {
+        fileSaveTimer = null;
+      }
+      return;
+    }
+
+    try {
+      // Save batch to SQLite database
+      const result = await db.saveIndexedFilesBatch(validBatch);
+      console.log(`Saved ${result.count} files to database (${result.errors} errors)`);
+
+      // Send notification to renderer process about the batch save
+      // This is just for progress tracking, not for storing the data
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (mainWindow) {
+        // Group files by folder to provide more detailed progress information
+        const folderCounts = {};
+        validBatch.forEach(file => {
+          const folderPath = file.folderPath || '';
+          if (!folderPath) return;
+
+          if (!folderCounts[folderPath]) {
+            folderCounts[folderPath] = {
+              folderId: file.folderId,
+              count: 0
+            };
+          }
+          folderCounts[folderPath].count++;
+        });
+
+        mainWindow.webContents.send('save-indexed-files-batch', {
+          filesCount: result.count,
+          errorsCount: result.errors,
+          folderCounts: folderCounts
+        });
+      }
+    } catch (error) {
+      console.error('Error saving batch to database:', error);
+    }
+
+    // Schedule next batch if there are more files
+    if (fileSaveQueue.length > 0) {
+      fileSaveTimer = setTimeout(processFileSaveQueue, FILE_SAVE_BATCH_DELAY);
+    } else {
+      fileSaveTimer = null;
+    }
+  }
+
   // Helper function to index a single file
   async function indexFile(filePath, folderId, folderPath) {
     try {
@@ -352,33 +449,62 @@ if (!gotTheLock) {
         return null;
       }
 
-      // console.log(`Indexing file: ${filePath}`);
+      // Read file content with optimized error handling
+      let content;
+      let stats;
 
-      // Read file content
-      const content = await readFile(filePath);
+      try {
+        // Get file stats first (smaller operation)
+        stats = await fsPromises.stat(filePath);
+
+        // Skip very large files (e.g., over 10MB) to prevent memory issues
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+        if (stats.size > MAX_FILE_SIZE) {
+          logIndexationError(folderPath, filePath, new Error(`File too large (${stats.size} bytes)`));
+          return null;
+        }
+
+        // Read file content
+        content = await readFile(filePath);
+      } catch (error) {
+        logIndexationError(folderPath, filePath, error);
+        return null;
+      }
+
       if (content === null) {
-        // Log error for null content
         logIndexationError(folderPath, filePath, new Error('Failed to read file content'));
         return null;
       }
 
-      // In a real implementation, you would:
-      // 1. Generate embeddings for the content
-      // 2. Store the embeddings in a vector database
-      // 3. Return metadata about the indexed file
-
-      // For now, we'll just return basic file info
-      const stats = await fsPromises.stat(filePath);
-      return {
+      // Create the file info object
+      const fileInfo = {
         path: filePath,
         filename: path.basename(filePath),
         size: stats.size,
         lastModified: stats.mtime,
         indexed: true
       };
+
+      // Add file to save queue instead of sending immediately
+      fileSaveQueue.push({
+        id: Date.now().toString() + '-' + path.basename(filePath).replace(/[^a-zA-Z0-9]/g, '-'),
+        folderId: folderId,
+        folderPath: folderPath, // Ensure folderPath is included for filtering
+        path: filePath,
+        filename: path.basename(filePath),
+        content: content,
+        lastIndexed: new Date(),
+        lastModified: stats.mtime
+      });
+
+      // Start queue processing if not already running
+      if (fileSaveTimer === null) {
+        fileSaveTimer = setTimeout(processFileSaveQueue, FILE_SAVE_BATCH_DELAY);
+      }
+
+      return fileInfo;
     } catch (error) {
-      console.error(`Error indexing file ${filePath}:`, error);
-      // Log the error but don't stop the indexation process
+      // Reduced logging - only log to error log, not console
       logIndexationError(folderPath, filePath, error);
       return null;
     }
@@ -389,20 +515,44 @@ if (!gotTheLock) {
     try {
       console.log(`Removing file from index: ${filePath}`);
 
-      // In a real implementation, you would:
-      // 1. Remove the file's embeddings from your vector database
-      // 2. Remove any metadata about the file from your index
-      // 3. Return information about the removed file
+      // Remove the file from the SQLite database
+      const result = await db.removeFileFromIndex(filePath, folderId);
+
+      // If the file was removed successfully, notify the renderer process
+      // This is just for UI updates, not for data storage
+      if (result.removed) {
+        const mainWindow = BrowserWindow.getAllWindows()[0];
+        if (mainWindow) {
+          mainWindow.webContents.send('remove-indexed-file', {
+            filePath: filePath,
+            folderId: folderId,
+            success: true
+          });
+        }
+      }
 
       return {
         path: filePath,
         filename: path.basename(filePath),
-        removed: true
+        removed: result.removed,
+        count: result.count
       };
     } catch (error) {
       console.error(`Error removing file ${filePath} from index:`, error);
       // Log the error but don't stop the process
       logIndexationError(folderPath, filePath, error);
+
+      // Notify the renderer process of the error
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (mainWindow) {
+        mainWindow.webContents.send('remove-indexed-file', {
+          filePath: filePath,
+          folderId: folderId,
+          success: false,
+          error: error.toString()
+        });
+      }
+
       return null;
     }
   }
@@ -439,13 +589,23 @@ if (!gotTheLock) {
     }
   }
 
+  // Throttle function for progress updates
+  const throttleProgressUpdates = throttle((mainWindow, data) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('indexation-progress', data);
+    }
+  }, 500); // Only send updates every 500ms
+
   // Helper function to recursively index a directory and all its subdirectories (deep indexing)
   async function indexDirectory(dirPath, folderId, rootFolderPath, totalFiles, indexedFiles = 0, mainWindow = null) {
     try {
       // Check if the root folder is still being indexed before starting
       const rootPath = rootFolderPath || dirPath;
-      if (!foldersBeingIndexed.some(f => f.folderPath === rootPath)) {
-        console.log(`Stopping indexation for ${dirPath} because root folder ${rootPath} is no longer being indexed`);
+
+      // Check both the foldersBeingIndexed array and the folderIndexingStatus map
+      if (!foldersBeingIndexed.some(f => f.folderPath === rootPath) ||
+          (folderIndexingStatus.has(rootPath) && !folderIndexingStatus.get(rootPath))) {
+        // Reduced logging
         return { results: [], indexedFiles };
       }
 
@@ -453,49 +613,72 @@ if (!gotTheLock) {
       // Use the root folder path for error logging, or the current directory if not provided
       const folderPathForLogging = rootFolderPath || dirPath;
 
+      // Read directory entries
       const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
 
-      for (const entry of entries) {
-        // Check again if the root folder is still being indexed before processing each entry
-        if (!foldersBeingIndexed.some(f => f.folderPath === rootPath)) {
-          console.log(`Stopping indexation for ${dirPath} because root folder ${rootPath} is no longer being indexed`);
+      // Process entries in batches to avoid blocking the main thread
+      const BATCH_SIZE = 100;
+      let i = 0;
+      let lastProgressUpdate = 0;
+
+      while (i < entries.length) {
+        // Check if indexation should continue before processing each batch
+        if (!foldersBeingIndexed.some(f => f.folderPath === rootPath) ||
+            (folderIndexingStatus.has(rootPath) && !folderIndexingStatus.get(rootPath))) {
           return { results, indexedFiles }; // Return any results collected so far
         }
 
-        const fullPath = path.join(dirPath, entry.name);
+        // Process a batch of entries
+        const batchEnd = Math.min(i + BATCH_SIZE, entries.length);
+        const batch = entries.slice(i, batchEnd);
+        i = batchEnd;
 
-        if (entry.isDirectory()) {
-          try {
-            // Recursively index subdirectory (this enables deep indexing of nested folders)
-            const subResult = await indexDirectory(fullPath, folderId, rootPath, totalFiles, indexedFiles, mainWindow);
-            results.push(...subResult.results);
-            indexedFiles = subResult.indexedFiles;
-          } catch (error) {
-            console.error(`Error indexing subdirectory ${fullPath}:`, error);
-            logIndexationError(folderPathForLogging, fullPath, error);
-            // Continue with other entries despite this error
-          }
-        } else if (entry.isFile()) {
-          // Index file
-          const result = await indexFile(fullPath, folderId, folderPathForLogging);
-          if (result) {
-            results.push(result);
-            indexedFiles++;
+        // Process each entry in the batch
+        for (const entry of batch) {
+          const fullPath = path.join(dirPath, entry.name);
 
-            // Send progress update to renderer process
-            if (mainWindow && totalFiles > 0) {
-              const progress = Math.round((indexedFiles / totalFiles) * 100);
-              mainWindow.webContents.send('indexation-progress', {
-                folderId,
-                folderPath: rootPath,
-                indexedFiles,
-                totalFiles,
-                progress,
-                status: 'indexing'
-              });
+          if (entry.isDirectory()) {
+            try {
+              // Recursively index subdirectory (this enables deep indexing of nested folders)
+              const subResult = await indexDirectory(fullPath, folderId, rootPath, totalFiles, indexedFiles, mainWindow);
+              results.push(...subResult.results);
+              indexedFiles = subResult.indexedFiles;
+            } catch (error) {
+              // Reduced logging - only log to error log, not console
+              logIndexationError(folderPathForLogging, fullPath, error);
+            }
+          } else if (entry.isFile()) {
+            // Index file
+            const result = await indexFile(fullPath, folderId, folderPathForLogging);
+            if (result) {
+              results.push(result);
+              indexedFiles++;
+
+              // Throttle progress updates to avoid overwhelming the UI
+              if (mainWindow && totalFiles > 0) {
+                const progress = Math.round((indexedFiles / totalFiles) * 100);
+
+                // Only send progress updates if significant progress has been made (at least 1% change)
+                // or if it's been a while since the last update
+                const now = Date.now();
+                if (progress > lastProgressUpdate || now - lastProgressUpdate >= 500) {
+                  lastProgressUpdate = progress;
+                  throttleProgressUpdates(mainWindow, {
+                    folderId,
+                    folderPath: rootPath,
+                    indexedFiles,
+                    totalFiles,
+                    progress,
+                    status: 'indexing'
+                  });
+                }
+              }
             }
           }
         }
+
+        // Yield to the event loop to prevent blocking
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
 
       return { results, indexedFiles };
@@ -542,6 +725,10 @@ if (!gotTheLock) {
       // Add to folders being indexed
       foldersBeingIndexed.push({ folderPath, folderId });
 
+      // Set indexing status to true for this folder
+      folderIndexingStatus.set(folderPath, true);
+      console.log(`Set indexing status to true for folder: ${folderPath}`);
+
       try {
         // Index the directory with progress tracking
         const { results, indexedFiles } = await indexDirectory(folderPath, folderId, folderPath, totalFiles, 0, mainWindow);
@@ -561,6 +748,10 @@ if (!gotTheLock) {
         // Remove from folders being indexed
         foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
 
+        // Clear indexing status for this folder
+        folderIndexingStatus.delete(folderPath);
+        console.log(`Cleared indexing status for folder: ${folderPath}`);
+
         return {
           success: true,
           filesIndexed: indexedFiles,
@@ -571,6 +762,11 @@ if (!gotTheLock) {
       } catch (error) {
         // Remove from folders being indexed in case of error
         foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
+
+        // Clear indexing status for this folder
+        folderIndexingStatus.delete(folderPath);
+        console.log(`Cleared indexing status for folder: ${folderPath} due to error`);
+
         throw error;
       }
     } catch (error) {
@@ -605,6 +801,10 @@ if (!gotTheLock) {
           // Add to folders being indexed
           foldersBeingIndexed.push({ folderPath, folderId });
 
+          // Set indexing status to true for this folder
+          folderIndexingStatus.set(folderPath, true);
+          console.log(`Set indexing status to true for folder: ${folderPath}`);
+
           try {
             // Index the directory
             const folderResults = await indexDirectory(folderPath, folderId, folderPath);
@@ -631,6 +831,10 @@ if (!gotTheLock) {
           } finally {
             // Remove from folders being indexed regardless of success or failure
             foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
+
+            // Clear indexing status for this folder
+            folderIndexingStatus.delete(folderPath);
+            console.log(`Cleared indexing status for folder: ${folderPath} after indexing`);
           }
         } catch (error) {
           console.error(`Error indexing folder ${folderPath}:`, error);
@@ -686,21 +890,50 @@ if (!gotTheLock) {
             continue;
           }
 
-          // Create a watcher for this folder and all its subdirectories (deep watching)
+          // Get indexed files for this folder
+          console.log(`Getting indexed files for folder: ${folderPath}`);
+
+          // Create a promise that will be resolved when we get a response from the renderer process
+          const indexedFilesPromise = new Promise((resolve) => {
+            // Set up a one-time listener for the response
+            ipcMain.once('indexed-files-response', (event, response) => {
+              resolve(response);
+            });
+
+            // Send a message to the renderer process to get the indexed files
+            const mainWindow = BrowserWindow.fromWebContents(event.sender);
+            if (mainWindow) {
+              mainWindow.webContents.send('get-indexed-files', { folderPath });
+            } else {
+              resolve({ success: false, error: 'No window found', files: [] });
+            }
+          });
+
+          // Wait for the indexed files
+          const indexedFilesResponse = await indexedFilesPromise;
+
+          // Check if we got a successful response
+          if (!indexedFilesResponse.success) {
+            console.error(`Error getting indexed files for folder: ${folderPath}`, indexedFilesResponse.error);
+            continue; // Skip this folder
+          }
+
+          // Get the list of indexed files
+          const indexedFiles = indexedFilesResponse.files || [];
+          console.log(`Found ${indexedFiles.length} indexed files for folder: ${folderPath}`);
+
+          // If no indexed files, skip this folder
+          if (indexedFiles.length === 0) {
+            console.log(`No indexed files found for folder: ${folderPath}, skipping`);
+            continue;
+          }
+
+          // Create a watcher for only the indexed files in this folder
           // Optimized configuration to reduce lag
-          const watcher = chokidar.watch(folderPath, {
+          const watcher = chokidar.watch(indexedFiles.map(file => file.path), {
             persistent: true,
             ignoreInitial: true,
-            ignored: [
-              /(^|[\/\\])\./, // Ignore hidden files
-              // Ignore non-indexable file extensions upfront
-              '**/*.{jpg,jpeg,png,gif,bmp,ico,svg,mp3,mp4,avi,mov,wmv,zip,rar,exe,dll,bin}',
-              // Add more non-indexable extensions as needed
-              '**/node_modules/**', // Ignore node_modules folders
-              '**/build/**', // Ignore build folders
-              '**/dist/**' // Ignore dist folders
-            ],
-            depth: 10, // Limit depth to a reasonable level
+            depth: 0, // Don't watch subdirectories, only the specific files
             awaitWriteFinish: {
               stabilityThreshold: 2000, // Wait for file to be stable for 2 seconds
               pollInterval: 100 // Poll every 100ms
@@ -875,6 +1108,10 @@ if (!gotTheLock) {
       if (isBeingIndexed) {
         console.log(`Stopping indexation for folder: ${folderPath}`);
 
+        // Set indexing status to false for this folder to stop the indexation process
+        folderIndexingStatus.set(folderPath, false);
+        console.log(`Set indexing status to false for folder: ${folderPath}`);
+
         // Get the BrowserWindow that sent the request
         const mainWindow = BrowserWindow.fromWebContents(event.sender);
 
@@ -894,6 +1131,13 @@ if (!gotTheLock) {
 
         // Remove from folders being indexed
         foldersBeingIndexed = foldersBeingIndexed.filter(f => f.folderPath !== folderPath);
+
+        // Wait a short time to allow the indexation process to stop gracefully
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Clear indexing status for this folder after a delay
+        folderIndexingStatus.delete(folderPath);
+        console.log(`Cleared indexing status for folder: ${folderPath} after stopping`);
 
         return {
           success: true,
@@ -1022,14 +1266,143 @@ if (!gotTheLock) {
       // Stop watching the folder
       const watchingStopped = await stopWatchingFolder(folderPath);
 
+      // Get the folder ID from the renderer process
+      const mainWindow = BrowserWindow.fromWebContents(event.sender);
+      if (!mainWindow) {
+        return {
+          success: false,
+          error: 'No window found',
+          folderPath,
+          watchingStopped,
+          indexationStopped: isBeingIndexed
+        };
+      }
+
+      // Create a promise that will be resolved when we get the folder ID from the renderer process
+      const folderIdPromise = new Promise((resolve) => {
+        // Set up a one-time listener for the folder ID response
+        ipcMain.once('folder-id-response', (event, response) => {
+          resolve(response);
+        });
+
+        // Send a message to the renderer process to get the folder ID
+        mainWindow.webContents.send('get-folder-id', { folderPath });
+      });
+
+      // Wait for the folder ID
+      const folderIdResponse = await folderIdPromise;
+
+      let filesRemoved = 0;
+
+      if (folderIdResponse.success && folderIdResponse.folderId) {
+        // Remove all files for this folder from the database
+        const folderId = folderIdResponse.folderId;
+        try {
+          const result = await db.removeFolderFromIndex(folderId);
+          filesRemoved = result.count;
+          console.log(`Removed ${filesRemoved} files from database for folder: ${folderPath}`);
+        } catch (dbError) {
+          console.error(`Error removing files from database for folder ${folderPath}:`, dbError);
+          // Continue with the operation even if database removal fails
+        }
+      }
+
       return {
         success: true,
         folderPath,
         watchingStopped,
-        indexationStopped: isBeingIndexed
+        indexationStopped: isBeingIndexed,
+        filesRemoved
       };
     } catch (error) {
       console.error('Error in remove-folder-from-index handler:', error);
+      return { success: false, error: error.toString() };
+    }
+  });
+
+  // Handler for getting indexed files for a folder
+  ipcMain.handle('get-indexed-files-for-folder', async (event, folderPath) => {
+    try {
+      console.log(`Getting indexed files for folder: ${folderPath}`);
+
+      // First, we need to find the folder ID for this folder path
+      // This is still handled by the renderer process since folder IDs are stored there
+      const mainWindow = BrowserWindow.fromWebContents(event.sender);
+      if (!mainWindow) {
+        return { success: false, error: 'No window found', files: [] };
+      }
+
+      // Create a promise that will be resolved when we get the folder ID from the renderer process
+      const folderIdPromise = new Promise((resolve) => {
+        // Set up a one-time listener for the folder ID response
+        ipcMain.once('folder-id-response', (event, response) => {
+          resolve(response);
+        });
+
+        // Send a message to the renderer process to get the folder ID
+        mainWindow.webContents.send('get-folder-id', { folderPath });
+      });
+
+      // Wait for the folder ID
+      const folderIdResponse = await folderIdPromise;
+
+      if (!folderIdResponse.success || !folderIdResponse.folderId) {
+        return {
+          success: false,
+          error: folderIdResponse.error || 'Folder ID not found',
+          files: []
+        };
+      }
+
+      // Now that we have the folder ID, get the indexed files from the database
+      const folderId = folderIdResponse.folderId;
+      const files = await db.getIndexedFilesForFolder(folderId);
+
+      // Return only the necessary file information (not the full content)
+      const fileInfos = files.map(file => ({
+        path: file.path,
+        filename: file.filename,
+        lastModified: file.lastModified
+      }));
+
+      return {
+        success: true,
+        files: fileInfos,
+        folderPath: folderPath,
+        folderId: folderId
+      };
+    } catch (error) {
+      console.error('Error getting indexed files for folder:', error);
+      return { success: false, error: error.toString(), files: [] };
+    }
+  });
+
+  // Handler for sending indexed files response back to main process
+  ipcMain.handle('send-indexed-files-response', async (event, response) => {
+    try {
+      console.log(`Received indexed files response for folder: ${response.folderPath}`);
+
+      // Emit the response event to resolve the promise in the get-indexed-files-for-folder handler
+      event.sender.send('indexed-files-response', response);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error sending indexed files response:', error);
+      return { success: false, error: error.toString() };
+    }
+  });
+
+  // Handler for sending folder ID response back to main process
+  ipcMain.handle('send-folder-id-response', async (event, response) => {
+    try {
+      console.log(`Received folder ID response for folder: ${response.folderPath}`);
+
+      // Emit the response event to resolve the promise in handlers that need folder ID
+      event.sender.send('folder-id-response', response);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error sending folder ID response:', error);
       return { success: false, error: error.toString() };
     }
   });
@@ -1062,9 +1435,55 @@ if (!gotTheLock) {
     }
   });
 
-  // Clean up watchers when app is quitting
+  // Handler for getting the database path
+  ipcMain.handle('get-database-path', async (event) => {
+    try {
+      // Get the user data directory
+      const userDataPath = app.getPath('userData');
+      const dbDir = path.join(userDataPath, 'database');
+      const dbPath = path.join(dbDir, 'indexed_files.db');
+
+      return {
+        success: true,
+        dbPath: dbPath,
+        dbDir: dbDir
+      };
+    } catch (error) {
+      console.error('Error getting database path:', error);
+      return { success: false, error: error.toString() };
+    }
+  });
+
+  // Handler for clearing all indexed files
+  ipcMain.handle('clear-all-indexed-files', async (event) => {
+    try {
+      console.log('Clearing all indexed files from database');
+
+      const result = await db.clearAllIndexedFiles();
+
+      console.log(`Cleared ${result.count} indexed files from database`);
+
+      return {
+        success: true,
+        count: result.count
+      };
+    } catch (error) {
+      console.error('Error clearing all indexed files:', error);
+      return { success: false, error: error.toString() };
+    }
+  });
+
+  // Clean up watchers and close database when app is quitting
   app.on('will-quit', async () => {
     await stopAllWatchers();
+
+    // Close the database connection
+    try {
+      await db.closeDatabase();
+      console.log('Database connection closed.');
+    } catch (error) {
+      console.error('Error closing database:', error);
+    }
   });
 
   // Add auto-launch functionality

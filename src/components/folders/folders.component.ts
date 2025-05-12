@@ -71,13 +71,28 @@ export class FoldersComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.loadFolders();
-    // Start watching folders for changes
-    this.startWatchingFolders();
-    // Start status update interval
-    this.startStatusUpdateInterval();
-    // Check for indexation errors
-    this.checkFolderErrors();
+    // First, check if there are any folders and clear indexed files if none exist
+    this.indexingService.clearIndexedFilesIfNoFolders().subscribe(
+      cleared => {
+        if (cleared) {
+          console.log('Cleared indexed files because no folders exist');
+        }
+        // Continue with normal initialization
+        this.loadFolders();
+        // Start status update interval
+        this.startStatusUpdateInterval();
+        // Check for indexation errors
+        this.checkFolderErrors();
+        // Note: startWatchingFolders is called from loadFolders when folders are loaded
+      },
+      error => {
+        console.error('Error clearing indexed files:', error);
+        // Continue with normal initialization even if there was an error
+        this.loadFolders();
+        this.startStatusUpdateInterval();
+        this.checkFolderErrors();
+      }
+    );
   }
 
   ngOnDestroy(): void {
@@ -240,39 +255,79 @@ export class FoldersComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Stop the current indexation process
+   * Stop ALL folder indexation in progress
+   * Also removes the folders indexation data from local storages and marks the Folder as Stopped
    */
   stopIndexation(): void {
-    if (!this.isIndexing || !this.indexingStatus.currentFolder) {
+    if (!this.isIndexing) {
       return;
     }
 
-    // Find the folder object that matches the current folder name
-    const currentFolder = this.folders.find(folder => folder.name === this.indexingStatus.currentFolder);
+    console.log('Stopping ALL folder indexation in progress');
 
-    if (!currentFolder) {
-      console.error(`Could not find folder with name ${this.indexingStatus.currentFolder}`);
-      return;
-    }
-
-    console.log(`Stopping indexation for folder: ${currentFolder.name} (${currentFolder.path})`);
-
-    // Call the indexing service to stop indexation
-    this.indexingService.stopFolderIndexation(currentFolder.path).subscribe(
-      success => {
-        if (success) {
-          console.log(`Indexation stopped for folder ${currentFolder.name}`);
-          // Reset the global indexation status
-          this.indexingService.resetIndexingStatus();
-          this.isIndexing = false;
-        } else {
-          console.error(`Failed to stop indexation for folder ${currentFolder.name}`);
-        }
-      },
-      error => {
-        console.error(`Error stopping indexation for folder ${currentFolder.name}:`, error);
-      }
+    // Get all folders that are currently being indexed
+    const indexingFolders = this.folders.filter(folder =>
+      folder.status === 'indexing' ||
+      (this.indexingStatus.currentFolder && folder.name === this.indexingStatus.currentFolder)
     );
+
+    // Even if no folders are identified as being indexed, if isIndexing is true,
+    // we should still stop the indexation process
+    if (indexingFolders.length === 0) {
+      console.log('No folders explicitly marked as indexing, but global indexing flag is true. Stopping indexation anyway.');
+
+      // Reset the global indexation status
+      this.indexingService.resetIndexingStatus();
+      this.isIndexing = false;
+
+      // Update the UI to reflect the changes
+      this.updateFolderIndexingProgress();
+      return;
+    }
+
+    // Stop indexation for each folder
+    indexingFolders.forEach(folder => {
+      console.log(`Stopping indexation for folder: ${folder.name} (${folder.path})`);
+
+      // Call the indexing service to stop indexation
+      this.indexingService.stopFolderIndexation(folder.path).subscribe(
+        success => {
+          if (success) {
+            console.log(`Indexation stopped for folder ${folder.name}`);
+
+            // Mark the folder as stopped in the folder stats
+            this.indexingService.updateFolderIndexingStats(folder.id, {
+              indexedFiles: folder.indexedFiles || 0,
+              totalFiles: folder.totalFiles || 0,
+              progress: -1, // -1 indicates stopped
+              status: 'stopped'
+            });
+
+            // Remove folder indexation data from local storage
+            this.indexingService.removeFolderFromIndex(folder).subscribe(
+              result => {
+                console.log(`Folder ${folder.name} indexation data removed: ${result}`);
+              },
+              error => {
+                console.error(`Error removing folder ${folder.name} indexation data:`, error);
+              }
+            );
+          } else {
+            console.error(`Failed to stop indexation for folder ${folder.name}`);
+          }
+        },
+        error => {
+          console.error(`Error stopping indexation for folder ${folder.name}:`, error);
+        }
+      );
+    });
+
+    // Reset the global indexation status
+    this.indexingService.resetIndexingStatus();
+    this.isIndexing = false;
+
+    // Update the UI to reflect the changes
+    this.updateFolderIndexingProgress();
   }
 
   /**

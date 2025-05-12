@@ -33,13 +33,36 @@ declare global {
       // Indexation error log methods
       getIndexationErrorLog: (folderPath?: string) => Promise<any>;
       clearIndexationErrorLog: (folderPath?: string) => Promise<any>;
+      // Get indexed files
+      getIndexedFilesForFolder: (folderPath: string) => Promise<any>;
+      sendIndexedFilesResponse: (response: any) => Promise<any>;
+      // Folder ID operations for SQLite database
+      sendFolderIdResponse: (response: any) => Promise<any>;
       // Directory operations
       openDirectory: (directoryPath: string) => Promise<any>;
+      // Database operations
+      getDatabasePath: () => Promise<any>;
+      clearAllIndexedFiles: () => Promise<any>;
       // Event listeners
       on: (channel: string, callback: (...args: any[]) => void) => () => void;
       onIndexationProgress: (callback: (update: IndexationProgressUpdate) => void) => () => void;
+      onSaveIndexedFilesBatch: (callback: (data: any) => void) => () => void;
     }
   }
+}
+
+
+// Define interface for folder count information in batch updates
+export interface FolderCountInfo {
+  folderId: string;
+  count: number;
+}
+
+export interface IndexedFilesBatch {
+  files?: any[];
+  filesCount?: number;
+  errorsCount?: number;
+  folderCounts?: { [folderPath: string]: FolderCountInfo };
 }
 
 @Injectable({
@@ -51,6 +74,11 @@ export class ElectronWindowService {
   public indexationProgress$ = this.indexationProgressSubject.asObservable();
   private progressCleanupFn: (() => void) | null = null;
 
+  // Add subject and observable for batch file saves
+  private indexedFilesBatchSubject = new Subject<IndexedFilesBatch>();
+  public indexedFilesBatch$ = this.indexedFilesBatchSubject.asObservable();
+  private batchCleanupFn: (() => void) | null = null;
+
   constructor() {
     this.isElectron = !!(window && window.electronAPI);
 
@@ -59,6 +87,11 @@ export class ElectronWindowService {
       this.progressCleanupFn = window.electronAPI.onIndexationProgress((update) => {
         this.indexationProgressSubject.next(update);
       });
+
+      // Subscribe to batch file save updates
+      this.batchCleanupFn = window.electronAPI.onSaveIndexedFilesBatch((data) => {
+        this.indexedFilesBatchSubject.next(data);
+      });
     }
   }
 
@@ -66,6 +99,9 @@ export class ElectronWindowService {
     // Clean up event listeners
     if (this.progressCleanupFn) {
       this.progressCleanupFn();
+    }
+    if (this.batchCleanupFn) {
+      this.batchCleanupFn();
     }
   }
 
@@ -217,12 +253,67 @@ export class ElectronWindowService {
   }
 
   /**
+   * Get indexed files for a specific folder
+   * @param folderPath Path of the folder to get indexed files for
+   */
+  async getIndexedFilesForFolder(folderPath: string): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.getIndexedFilesForFolder(folderPath);
+    }
+    return { success: false, error: 'Not running in Electron', files: [] };
+  }
+
+  /**
+   * Send indexed files response back to main process
+   * @param response Response data
+   */
+  async sendIndexedFilesResponse(response: any): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.sendIndexedFilesResponse(response);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
    * Open a directory in the file explorer
    * @param directoryPath Path of the directory to open
    */
   async openDirectory(directoryPath: string): Promise<any> {
     if (this.isElectron) {
       return await window.electronAPI.openDirectory(directoryPath);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Send folder ID response back to main process
+   * @param response Response data
+   */
+  async sendFolderIdResponse(response: any): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.sendFolderIdResponse(response);
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Get the database path
+   * @returns Promise resolving to an object with the database path and directory
+   */
+  async getDatabasePath(): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.getDatabasePath();
+    }
+    return { success: false, error: 'Not running in Electron' };
+  }
+
+  /**
+   * Clear all indexed files from the database
+   * @returns Promise resolving to an object with the count of files cleared
+   */
+  async clearAllIndexedFiles(): Promise<any> {
+    if (this.isElectron) {
+      return await window.electronAPI.clearAllIndexedFiles();
     }
     return { success: false, error: 'Not running in Electron' };
   }

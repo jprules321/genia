@@ -1,0 +1,75 @@
+.settings-container {
+  padding: 20px;
+  height: 100%;
+  overflow-y: auto;
+
+  .header {
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 10px;
+
+    h2 {
+      margin: 0;
+      font-size: 24px;
+      color: #333;
+    }
+  }
+
+  .error-message {
+    background-color: #ffebee;
+    color: #c62828;
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    border-left: 4px solid #c62828;
+  }
+
+  .settings-section {
+    margin-bottom: 30px;
+
+    h3 {
+      font-size: 18px;
+      margin-bottom: 15px;
+      color: #424242;
+    }
+
+    .settings-card {
+      background-color: #fff;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+    }
+
+    .setting-item {
+      margin-bottom: 15px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+        color: #616161;
+      }
+
+      .path-container {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+
+        .path-textbox {
+          flex: 1;
+          background-color: #f5f5f5;
+        }
+      }
+
+      .loading-indicator {
+        margin-top: 8px;
+        color: #757575;
+        font-style: italic;
+      }
+    }
+  }
+}

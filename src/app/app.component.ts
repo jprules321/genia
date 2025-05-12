@@ -36,6 +36,9 @@ export class AppComponent implements OnInit {
   public data: INodeData[] = [
     {
       nodeId: '01', nodeText: 'Folders', iconCss: 'e-folder e-icons', routerLink: 'folders'
+    },
+    {
+      nodeId: '02', nodeText: 'Settings', iconCss: 'e-settings e-icons', routerLink: 'settings'
     }
   ];
 

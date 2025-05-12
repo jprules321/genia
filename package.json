@@ -35,6 +35,7 @@
     "@syncfusion/ej2-angular-gantt": "^29.1.39",
     "@syncfusion/ej2-angular-grids": "^29.1.33",
     "@syncfusion/ej2-angular-inputs": "^29.1.34",
+    "@syncfusion/ej2-angular-layouts": "^29.1.39",
     "@syncfusion/ej2-angular-navigations": "^29.1.34",
     "@syncfusion/ej2-angular-popups": "^29.1.35",
     "@syncfusion/ej2-angular-richtexteditor": "^29.1.35",
@@ -44,6 +45,7 @@
     "chokidar": "^3.6.0",
     "parse": "^6.1.1",
     "rxjs": "~7.8.0",
+    "sqlite3": "^5.1.7",
     "tslib": "^2.3.0",
     "zone.js": "~0.15.0"
   },

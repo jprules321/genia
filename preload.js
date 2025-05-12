@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('indexation-progress', subscription);
   },
 
+  // Receive batch file save updates
+  onSaveIndexedFilesBatch: (func) => {
+    const subscription = (event, ...args) => func(...args);
+    ipcRenderer.on('save-indexed-files-batch', subscription);
+    return () => ipcRenderer.removeListener('save-indexed-files-batch', subscription);
+  },
+
   // Window management
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
   minimizeWindow: () => ipcRenderer.send('minimize-window'),
@@ -44,6 +51,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getIndexationErrorLog: (folderPath) => ipcRenderer.invoke('get-indexation-error-log', folderPath),
   clearIndexationErrorLog: (folderPath) => ipcRenderer.invoke('clear-indexation-error-log', folderPath),
 
+  // Get indexed files
+  getIndexedFilesForFolder: (folderPath) => ipcRenderer.invoke('get-indexed-files-for-folder', folderPath),
+  sendIndexedFilesResponse: (response) => ipcRenderer.invoke('send-indexed-files-response', response),
+
+  // Folder ID operations for SQLite database
+  sendFolderIdResponse: (response) => ipcRenderer.invoke('send-folder-id-response', response),
+
   // Directory operations
-  openDirectory: (directoryPath) => ipcRenderer.invoke('open-directory', directoryPath)
+  openDirectory: (directoryPath) => ipcRenderer.invoke('open-directory', directoryPath),
+
+  // Database operations
+  getDatabasePath: () => ipcRenderer.invoke('get-database-path'),
+  clearAllIndexedFiles: () => ipcRenderer.invoke('clear-all-indexed-files')
 });

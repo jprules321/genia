@@ -1,0 +1,29 @@
+<div class="control-section settings-container">
+  <div class="header">
+    <h2>Settings</h2>
+  </div>
+
+  <!-- Error message display -->
+  <div *ngIf="errorMessage" class="error-message">
+    <span>{{ errorMessage }}</span>
+  </div>
+
+  <!-- Database Settings Section -->
+  <div class="settings-section">
+    <h3>Database Settings</h3>
+    <div class="settings-card">
+      <div class="setting-item">
+        <label for="databasePath">Database Path:</label>
+        <div class="path-container">
+          <ejs-textbox id="databasePath" [value]="databasePath" [readonly]="true" cssClass="path-textbox"></ejs-textbox>
+          <button ejs-button cssClass="e-primary" (click)="openDatabaseDirectory()" [disabled]="!databaseDir">
+            Open Directory
+          </button>
+        </div>
+        <div *ngIf="isLoading" class="loading-indicator">
+          <span>Loading...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

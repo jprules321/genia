@@ -83,6 +83,78 @@ export class IndexingService implements OnDestroy {
         this.handleIndexationProgressUpdate(update);
       })
     );
+
+    // Subscribe to batch file save updates (now just for progress tracking)
+    this.subscriptions.push(
+      this.electronWindowService.indexedFilesBatch$.subscribe(data => {
+        // Log the batch save notification
+        console.log(`Batch of ${data.filesCount} files saved to database (${data.errorsCount} errors)`);
+
+        // If we have folder-specific counts, update the folder stats
+        if (data.folderCounts) {
+          Object.entries(data.folderCounts).forEach(([folderPath, info]) => {
+            const folderId = info.folderId;
+            const count = info.count;
+
+            // Only update stats if we have a valid folder ID and the folder is still being indexed
+            if (folderId) {
+              // Get current stats for this folder
+              const stats = this.folderStats.get(folderId);
+              if (stats) {
+                // Only update if the folder is still being indexed
+                if (stats.status === 'indexing') {
+                  // Update indexed files count
+                  const updatedStats = {
+                    ...stats,
+                    indexedFiles: stats.indexedFiles + count,
+                    // Recalculate progress
+                    progress: stats.totalFiles > 0
+                      ? Math.min(100, Math.round((stats.indexedFiles + count) / stats.totalFiles * 100))
+                      : 100
+                  };
+
+                  // Update the stats
+                  this.folderStats.set(folderId, updatedStats);
+                  this.saveFolderStats();
+                }
+              }
+            }
+          });
+        }
+      })
+    );
+
+    // Set up listeners for messages from main process
+    if (window.electronAPI) {
+      // Listener for get-indexed-files message
+      const getIndexedFilesCleanup = window.electronAPI.on('get-indexed-files', (data: any) => {
+        this.handleGetIndexedFilesRequest(data);
+      });
+
+      // Listener for get-folder-id message
+      const getFolderIdCleanup = window.electronAPI.on('get-folder-id', (data: any) => {
+        this.handleGetFolderIdRequest(data);
+      });
+
+      // Listener for remove-indexed-file message (just for UI updates)
+      const removeIndexedFileCleanup = window.electronAPI.on('remove-indexed-file', (data: any) => {
+        // Just log the removal notification, no need to remove from localStorage
+        if (data.success) {
+          console.log(`File removed from database: ${data.filePath}`);
+        } else {
+          console.error(`Error removing file from database: ${data.filePath}`, data.error);
+        }
+      });
+
+      // Store cleanup functions to be called on destroy
+      this.subscriptions.push(
+        new Subscription(() => {
+          getIndexedFilesCleanup();
+          getFolderIdCleanup();
+          removeIndexedFileCleanup();
+        })
+      );
+    }
   }
 
   ngOnDestroy() {
@@ -142,34 +214,74 @@ export class IndexingService implements OnDestroy {
   }
 
   /**
-   * Get all indexed files from local storage
+   * Get all indexed files - now returns an empty array since files are stored in SQLite
+   * This method is kept for backward compatibility but should not be used
    */
   getIndexedFiles(): Observable<IndexedFile[]> {
-    try {
-      const filesJson = localStorage.getItem(this.STORAGE_KEY);
-      const files = filesJson ? JSON.parse(filesJson) : [];
-
-      // Convert date strings to Date objects
-      const filesWithDates = files.map(file => ({
-        ...file,
-        lastIndexed: file.lastIndexed ? new Date(file.lastIndexed) : new Date(),
-        lastModified: file.lastModified ? new Date(file.lastModified) : new Date()
-      }));
-
-      return of(filesWithDates);
-    } catch (error) {
-      console.error('Error getting indexed files:', error);
-      return of([]);
-    }
+    console.warn('getIndexedFiles() is deprecated - files are now stored in SQLite database');
+    return of([]);
   }
 
   /**
-   * Get indexed files for a specific folder
+   * Get indexed files for a specific folder - now returns an empty array since files are stored in SQLite
+   * This method is kept for backward compatibility but should not be used
    */
   getIndexedFilesForFolder(folderId: string): Observable<IndexedFile[]> {
-    return this.getIndexedFiles().pipe(
-      map(files => files.filter(file => file.folderId === folderId))
+    console.warn('getIndexedFilesForFolder() is deprecated - files are now stored in SQLite database');
+    return of([]);
+  }
+
+  /**
+   * Handle request from main process to get folder ID for a folder path
+   * @param data Request data containing folderPath
+   */
+  private handleGetFolderIdRequest(data: { folderPath: string }): void {
+    console.log(`Received request for folder ID for path: ${data.folderPath}`);
+
+    // Find the folder ID for the given folder path
+    this.foldersService.getFolders().subscribe(
+      folders => {
+        const folder = folders.find(f => f.path === data.folderPath);
+
+        if (!folder) {
+          console.error(`Folder not found for path: ${data.folderPath}`);
+          // Send error response back to main process
+          this.sendFolderIdResponse({
+            success: false,
+            error: 'Folder not found',
+            folderPath: data.folderPath
+          });
+          return;
+        }
+
+        // Send folder ID back to main process
+        this.sendFolderIdResponse({
+          success: true,
+          folderId: folder.id,
+          folderPath: data.folderPath
+        });
+      },
+      error => {
+        console.error('Error getting folders:', error);
+        // Send error response back to main process
+        this.sendFolderIdResponse({
+          success: false,
+          error: error.toString(),
+          folderPath: data.folderPath
+        });
+      }
     );
+  }
+
+  /**
+   * Send folder ID response back to main process
+   * @param response Response data
+   */
+  private sendFolderIdResponse(response: any): void {
+    // Use the ElectronWindowService to send the response back to the main process
+    this.electronWindowService.sendFolderIdResponse(response).catch(error => {
+      console.error('Error sending folder ID response:', error);
+    });
   }
 
   /**
@@ -257,18 +369,32 @@ export class IndexingService implements OnDestroy {
     );
   }
 
+  // Debounce mechanism to prevent multiple calls to startWatchingFolders
+  private lastWatchingStarted: number = 0;
+  private watchingDebounceTime: number = 1000; // 1 second debounce
+
   /**
    * Start watching all folders for changes
    */
   startWatchingFolders(): Observable<boolean> {
+    // Check if we've recently started watching folders
+    const now = Date.now();
+    if (now - this.lastWatchingStarted < this.watchingDebounceTime) {
+      console.log('Debouncing startWatchingFolders call - already called recently');
+      return of(true); // Return success without actually calling again
+    }
+
+    // Update the last time we started watching
+    this.lastWatchingStarted = now;
+
     return this.foldersService.getFolders().pipe(
       switchMap(folders => {
         if (folders.length === 0) {
           return of(true);
         }
 
+        console.log(`Starting to watch ${folders.length} folders (debounced)`);
         // This would call the Electron main process to start watching folders
-        // For now, we'll simulate this with a placeholder
         return from(this.invokeStartWatching(folders)).pipe(
           catchError(error => {
             console.error('Error starting folder watching:', error);
@@ -398,28 +524,16 @@ export class IndexingService implements OnDestroy {
   removeFolderFromIndex(folder: Folder): Observable<boolean> {
     console.log(`Removing folder from index: ${folder.name} (${folder.path})`);
 
-    // First remove all indexed files for this folder from localStorage
-    return this.getIndexedFiles().pipe(
-      switchMap(files => {
-        // Filter out all files associated with this folder
-        const updatedFiles = files.filter(file => file.folderId !== folder.id);
-
-        // If we removed any files, save the updated array
-        if (updatedFiles.length !== files.length) {
-          localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedFiles));
-          console.log(`Removed ${files.length - updatedFiles.length} files from index for folder: ${folder.name}`);
-        }
-
-        // Now call the Electron main process to remove the folder from the watchers
-        return from(this.electronWindowService.removeFolderFromIndex(folder.path));
-      }),
-      switchMap(result => {
+    // Call the Electron main process to remove the folder from the watchers and database
+    return from(this.electronWindowService.removeFolderFromIndex(folder.path)).pipe(
+      map(result => {
         if (result.success) {
           console.log(`Successfully removed folder from index: ${folder.name}`);
-          return of(true);
+          console.log(`Removed ${result.filesRemoved} files from database for folder: ${folder.name}`);
+          return true;
         } else {
           console.error(`Error removing folder from index: ${folder.name}`, result.error);
-          return of(false);
+          return false;
         }
       }),
       catchError(error => {
@@ -439,73 +553,34 @@ export class IndexingService implements OnDestroy {
   }
 
   /**
-   * Save an indexed file to storage
+   * Save an indexed file to storage - deprecated, files are now stored in SQLite
+   * This method is kept for backward compatibility but should not be used
    */
   private saveIndexedFile(file: IndexedFile): Observable<IndexedFile> {
-    return this.getIndexedFiles().pipe(
-      map(files => {
-        const index = files.findIndex(f => f.id === file.id);
-
-        // Ensure dates are Date objects
-        const fileWithDates = {
-          ...file,
-          lastIndexed: file.lastIndexed instanceof Date ? file.lastIndexed : new Date(file.lastIndexed),
-          lastModified: file.lastModified instanceof Date ? file.lastModified : new Date(file.lastModified)
-        };
-
-        let updatedFiles: IndexedFile[];
-        if (index === -1) {
-          // New file
-          updatedFiles = [...files, fileWithDates];
-        } else {
-          // Update existing file
-          updatedFiles = [
-            ...files.slice(0, index),
-            fileWithDates,
-            ...files.slice(index + 1)
-          ];
-        }
-
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedFiles));
-        return fileWithDates;
-      })
-    );
+    console.warn('saveIndexedFile() is deprecated - files are now stored in SQLite database');
+    return of(file);
   }
 
   /**
-   * Remove a file from the index
+   * Save multiple indexed files to storage - deprecated, files are now stored in SQLite
+   * This method is kept for backward compatibility but should not be used
+   * @param files Array of files to save
+   * @returns Observable of the number of files saved
+   */
+  private saveIndexedFilesBatch(files: IndexedFile[]): Observable<number> {
+    console.warn('saveIndexedFilesBatch() is deprecated - files are now stored in SQLite database');
+    return of(files ? files.length : 0);
+  }
+
+  /**
+   * Remove a file from the index - deprecated, files are now stored in SQLite
+   * This method is kept for backward compatibility but should not be used
    * @param filePath Path of the file to remove
    * @param folderId ID of the folder containing the file
    */
   removeFileFromIndex(filePath: string, folderId: string): Observable<boolean> {
-    return this.getIndexedFiles().pipe(
-      map(files => {
-        // Find the file by path and folder ID
-        const index = files.findIndex(f => f.path === filePath && f.folderId === folderId);
-
-        if (index === -1) {
-          // File not found in index
-          console.log(`File not found in index: ${filePath}`);
-          return false;
-        }
-
-        // Remove the file from the array
-        const updatedFiles = [
-          ...files.slice(0, index),
-          ...files.slice(index + 1)
-        ];
-
-        // Save the updated files array
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedFiles));
-        console.log(`Removed file from index: ${filePath}`);
-
-        return true;
-      }),
-      catchError(error => {
-        console.error('Error removing file from index:', error);
-        return of(false);
-      })
-    );
+    console.warn('removeFileFromIndex() is deprecated - files are now stored in SQLite database');
+    return of(true);
   }
 
   /**
@@ -659,6 +734,95 @@ export class IndexingService implements OnDestroy {
       catchError(error => {
         console.error('Error clearing indexation errors:', error);
         return of(false);
+      })
+    );
+  }
+
+  /**
+   * Handle request from main process to get indexed files for a folder
+   * @param data Request data containing folderPath
+   */
+  private handleGetIndexedFilesRequest(data: { folderPath: string }): void {
+    console.log(`Received request for indexed files for folder: ${data.folderPath}`);
+
+    // Find the folder ID for the given folder path
+    this.foldersService.getFolders().subscribe(
+      folders => {
+        const folder = folders.find(f => f.path === data.folderPath);
+
+        if (!folder) {
+          console.error(`Folder not found for path: ${data.folderPath}`);
+          // Send empty response back to main process
+          this.sendIndexedFilesResponse({
+            success: false,
+            error: 'Folder not found',
+            files: [],
+            folderPath: data.folderPath
+          });
+          return;
+        }
+
+        // Send response back to main process with folder ID
+        // The main process will now query the SQLite database directly
+        this.sendIndexedFilesResponse({
+          success: true,
+          folderId: folder.id,
+          folderPath: data.folderPath
+        });
+      },
+      error => {
+        console.error('Error getting folders:', error);
+        // Send error response back to main process
+        this.sendIndexedFilesResponse({
+          success: false,
+          error: error.toString(),
+          files: [],
+          folderPath: data.folderPath
+        });
+      }
+    );
+  }
+
+  /**
+   * Send indexed files response back to main process
+   * @param response Response data
+   */
+  private sendIndexedFilesResponse(response: any): void {
+    // Use the ElectronWindowService to send the response back to the main process
+    this.electronWindowService.sendIndexedFilesResponse(response).catch(error => {
+      console.error('Error sending indexed files response:', error);
+    });
+  }
+
+  /**
+   * Check if there are any folders and clear indexed files if none exist
+   * This should be called on startup to ensure the database is clean
+   * @returns Observable of boolean indicating if files were cleared
+   */
+  clearIndexedFilesIfNoFolders(): Observable<boolean> {
+    return this.foldersService.getFolders().pipe(
+      switchMap(folders => {
+        if (folders.length === 0) {
+          console.log('No folders found, clearing all indexed files');
+          return from(this.electronWindowService.clearAllIndexedFiles()).pipe(
+            map(result => {
+              if (result.success) {
+                console.log(`Cleared ${result.count} indexed files from database`);
+                return true;
+              } else {
+                console.error('Error clearing indexed files:', result.error);
+                return false;
+              }
+            }),
+            catchError(error => {
+              console.error('Error clearing indexed files:', error);
+              return of(false);
+            })
+          );
+        } else {
+          console.log(`Found ${folders.length} folders, no need to clear indexed files`);
+          return of(false);
+        }
       })
     );
   }

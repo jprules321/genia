@@ -24,7 +24,7 @@
       No folders added yet. Add your first folder above.
     </div>
 
-    <ejs-grid #grid [dataSource]="folders" *ngIf="folders.length > 0" [allowPaging]="true" [pageSettings]="{ pageSize: 10 }">
+    <ejs-grid #grid [dataSource]="folders" *ngIf="folders.length > 0" [allowPaging]="true" [pageSettings]="{ pageSize: 10 }" [enableHover]="true" [allowTextWrap]="true" [width]="'100%'" [allowResizing]="true">
       <e-columns>
         <e-column field="name" headerText="Name" width="120"></e-column>
         <e-column field="path" headerText="Path" width="180"></e-column>
@@ -56,7 +56,7 @@
             <span *ngIf="!data.hasErrors">No errors</span>
           </ng-template>
         </e-column>
-        <e-column headerText="Actions" width="250" textAlign="Center">
+        <e-column headerText="Actions" width="250" textAlign="Center" [freeze]="'Right'">
           <ng-template #template let-data>
             <button ejs-button cssClass="e-info e-small" (click)="updateFolder(data)">Edit</button>
             <button ejs-button cssClass="e-danger e-small" (click)="deleteFolder(data.id)">Delete</button>
