@@ -41,10 +41,11 @@
         </e-column>
         <e-column headerText="Status" width="110" textAlign="Center">
           <ng-template #template let-data>
-            <span *ngIf="data.status === 'indexed'" class="status-badge status-indexed">Indexed</span>
-            <span *ngIf="data.status === 'indexing'" class="status-badge status-indexing">Indexing</span>
-            <span *ngIf="data.status === 'stopped'" class="status-badge status-stopped">Stopped</span>
-            <span *ngIf="!data.status" class="status-badge">-</span>
+            <span *ngIf="data.deleting" class="status-badge status-deleting">Deleting...</span>
+            <span *ngIf="!data.deleting && data.status === 'indexed'" class="status-badge status-indexed">Indexed</span>
+            <span *ngIf="!data.deleting && data.status === 'indexing'" class="status-badge status-indexing">Indexing</span>
+            <span *ngIf="!data.deleting && data.status === 'stopped'" class="status-badge status-stopped">Stopped</span>
+            <span *ngIf="!data.deleting && !data.status" class="status-badge">-</span>
           </ng-template>
         </e-column>
         <e-column headerText="Errors" width="80" textAlign="Center">
@@ -58,8 +59,8 @@
         </e-column>
         <e-column headerText="Actions" width="250" textAlign="Center" [freeze]="'Right'">
           <ng-template #template let-data>
-            <button ejs-button cssClass="e-info e-small" (click)="updateFolder(data)">Edit</button>
-            <button ejs-button cssClass="e-danger e-small" (click)="deleteFolder(data.id)">Delete</button>
+            <button ejs-button cssClass="e-info e-small" (click)="updateFolder(data)" [disabled]="data.deleting">Edit</button>
+            <button ejs-button cssClass="e-danger e-small" (click)="deleteFolder(data.id)" [disabled]="data.deleting">Delete</button>
             <button ejs-button cssClass="e-success e-small" (click)="openDirectory(data.path)">Open Directory</button>
           </ng-template>
         </e-column>

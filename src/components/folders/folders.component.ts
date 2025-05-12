@@ -648,6 +648,26 @@ export class FoldersComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Check if the folder is already being deleted
+    if (folderToDelete.deleting) {
+      console.log(`Folder ${folderToDelete.name} is already being deleted`);
+      return;
+    }
+
+    // Mark the folder as being deleted
+    const folderIndex = this.folders.findIndex(folder => folder.id === id);
+    if (folderIndex !== -1) {
+      this.folders[folderIndex] = {
+        ...this.folders[folderIndex],
+        deleting: true
+      };
+
+      // Force change detection to update the UI immediately
+      setTimeout(() => {
+        console.log(`UI updated to show folder ${folderToDelete.name} as deleting`);
+      }, 0);
+    }
+
     // Check if the folder is currently being indexed and stop indexation if needed
     const indexingStatus = this.indexingService.getIndexingStatus();
     if (indexingStatus.inProgress && indexingStatus.currentFolder === folderToDelete.name) {
@@ -672,41 +692,124 @@ export class FoldersComponent implements OnInit, OnDestroy {
 
   // Helper method to perform the actual folder deletion
   private performFolderDeletion(id: string, folderToDelete: Folder): void {
-    this.foldersService.deleteFolder(id).subscribe(
-      success => {
-        if (success) {
-          // Remove folder from the list
-          this.folders = this.folders.filter(folder => folder.id !== id);
+    console.log(`Starting folder deletion process for folder: ${folderToDelete.name} (${folderToDelete.path})`);
 
-          // Remove folder indexing stats
-          this.indexingService.removeFolderIndexingStats(folderToDelete.id);
+    // Mark the folder as being deleted in the UI
+    // We'll keep the folder in the list until after we've removed it from the index
+    // This ensures the folder ID is still available when we need to clear indexed files
+    console.log(`Marking folder ${folderToDelete.name} as being deleted...`);
+    const folderIndex = this.folders.findIndex(folder => folder.id === id);
+    if (folderIndex !== -1) {
+      this.folders[folderIndex] = {
+        ...this.folders[folderIndex],
+        deleting: true
+      };
+    }
 
-          // Remove folder from index (clears indexed files and stops watching)
-          this.indexingService.removeFolderFromIndex(folderToDelete).subscribe(
-            result => {
-              console.log(`Folder ${folderToDelete.name} removed from index: ${result}`);
-            },
-            error => {
-              console.error(`Error removing folder ${folderToDelete.name} from index:`, error);
+    // Force change detection to update the UI immediately
+    setTimeout(() => {
+      console.log(`UI updated to mark folder ${folderToDelete.name} as being deleted`);
+    }, 0);
+
+    // First remove folder from index (clears indexed files and stops watching)
+    // This ensures indexed files are deleted from the database before the folder is deleted
+    this.indexingService.removeFolderFromIndex(folderToDelete).subscribe(
+      result => {
+        console.log(`Folder ${folderToDelete.name} removed from index: ${result}`);
+
+        // Now delete the folder from the service
+        console.log(`Deleting folder ${folderToDelete.name} from service...`);
+        this.foldersService.deleteFolder(id).subscribe(
+          success => {
+            console.log(`Folder ${folderToDelete.name} deletion from service result: ${success}`);
+            if (success) {
+              // Now that the folder has been removed from the index and deleted from the service,
+              // we can safely remove it from the UI list
+              console.log(`Removing folder ${folderToDelete.name} from UI list...`);
+              console.log(`Before removal, folders count: ${this.folders.length}`);
+              this.folders = this.folders.filter(folder => folder.id !== id);
+              console.log(`After removal, folders count: ${this.folders.length}`);
+
+              // Remove folder indexing stats
+              this.indexingService.removeFolderIndexingStats(folderToDelete.id);
+              console.log(`Removed indexing stats for folder ${folderToDelete.name}`);
+
+              // Check if this was the folder being indexed and reset global indexation status if needed
+              const indexingStatus = this.indexingService.getIndexingStatus();
+              if (indexingStatus.inProgress && indexingStatus.currentFolder === folderToDelete.name) {
+                // Reset the global indexation status
+                console.log(`Resetting global indexation status for folder ${folderToDelete.name}`);
+                this.indexingService.resetIndexingStatus();
+                this.isIndexing = false;
+              }
+
+              // Restart folder watching to update the watched paths
+              console.log(`Restarting folder watching...`);
+              this.startWatchingFolders();
+
+              console.log(`Folder ${folderToDelete.name} removed from watching`);
+
+              // Force change detection to update the UI
+              setTimeout(() => {
+                console.log(`Folder deletion process completed for ${folderToDelete.name}`);
+                console.log(`Current folders in list: ${this.folders.map(f => f.name).join(', ')}`);
+              }, 100);
+            } else {
+              console.error(`Failed to delete folder ${folderToDelete.name} from service`);
             }
-          );
-
-          // Check if this was the folder being indexed and reset global indexation status if needed
-          const indexingStatus = this.indexingService.getIndexingStatus();
-          if (indexingStatus.inProgress && indexingStatus.currentFolder === folderToDelete.name) {
-            // Reset the global indexation status
-            this.indexingService.resetIndexingStatus();
-            this.isIndexing = false;
+          },
+          error => {
+            console.error('Error deleting folder:', error);
           }
-
-          // Restart folder watching to update the watched paths
-          this.startWatchingFolders();
-
-          console.log(`Folder ${folderToDelete.name} removed from watching`);
-        }
+        );
       },
       error => {
-        console.error('Error deleting folder:', error);
+        console.error(`Error removing folder ${folderToDelete.name} from index:`, error);
+        // Continue with folder deletion even if removing from index fails
+        console.log(`Continuing with folder deletion despite index removal error...`);
+        this.foldersService.deleteFolder(id).subscribe(
+          success => {
+            console.log(`Folder ${folderToDelete.name} deletion from service result: ${success}`);
+            if (success) {
+              // Now that the folder has been deleted from the service,
+              // we can safely remove it from the UI list
+              console.log(`Removing folder ${folderToDelete.name} from UI list...`);
+              console.log(`Before removal, folders count: ${this.folders.length}`);
+              this.folders = this.folders.filter(folder => folder.id !== id);
+              console.log(`After removal, folders count: ${this.folders.length}`);
+
+              // Remove folder indexing stats
+              this.indexingService.removeFolderIndexingStats(folderToDelete.id);
+              console.log(`Removed indexing stats for folder ${folderToDelete.name}`);
+
+              // Check if this was the folder being indexed and reset global indexation status if needed
+              const indexingStatus = this.indexingService.getIndexingStatus();
+              if (indexingStatus.inProgress && indexingStatus.currentFolder === folderToDelete.name) {
+                // Reset the global indexation status
+                console.log(`Resetting global indexation status for folder ${folderToDelete.name}`);
+                this.indexingService.resetIndexingStatus();
+                this.isIndexing = false;
+              }
+
+              // Restart folder watching to update the watched paths
+              console.log(`Restarting folder watching...`);
+              this.startWatchingFolders();
+
+              console.log(`Folder ${folderToDelete.name} removed from watching`);
+
+              // Force change detection to update the UI
+              setTimeout(() => {
+                console.log(`Folder deletion process completed for ${folderToDelete.name}`);
+                console.log(`Current folders in list: ${this.folders.map(f => f.name).join(', ')}`);
+              }, 100);
+            } else {
+              console.error(`Failed to delete folder ${folderToDelete.name} from service`);
+            }
+          },
+          error => {
+            console.error('Error deleting folder:', error);
+          }
+        );
       }
     );
   }
@@ -724,4 +827,5 @@ export interface Folder {
   errorCount?: number;
   hasErrors?: boolean;
   status?: 'indexed' | 'indexing' | 'stopped';
+  deleting?: boolean;
 }

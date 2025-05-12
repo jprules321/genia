@@ -102,8 +102,13 @@ export class FoldersService {
   deleteFolder(id: string): Observable<boolean> {
     return this.getFolders().pipe(
       map(folders => {
+        const folderToDelete = folders.find(folder => folder.id === id);
         const updatedFolders = folders.filter(folder => folder.id !== id);
         localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedFolders));
+
+        // Note: The indexed files should already be cleared by IndexingService.removeFolderFromIndex
+        // which is called before this method in the FoldersComponent.performFolderDeletion method
+
         return true;
       }),
       catchError(error => {

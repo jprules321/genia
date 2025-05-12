@@ -260,7 +260,7 @@ if (!gotTheLock) {
     }
   }
 
-  app.on('ready', () => {
+  app.on('ready', async () => {
     // Debug application paths
     console.log('Application paths for debugging:');
     console.log('__dirname:', __dirname);
@@ -268,6 +268,10 @@ if (!gotTheLock) {
 
     createWindow();
     createTray();
+
+    // Note: We don't clear indexed files here anymore.
+    // The renderer process handles this through the IndexingService.clearIndexedFilesIfNoFolders() method,
+    // which properly checks if folders exist before clearing indexed files.
   });
 
   app.on('window-all-closed', () => {
@@ -361,7 +365,7 @@ if (!gotTheLock) {
   // Queue for batching file save messages to renderer
   let fileSaveQueue = [];
   let fileSaveTimer = null;
-  const FILE_SAVE_BATCH_SIZE = 50;
+  const FILE_SAVE_BATCH_SIZE = 250;
   const FILE_SAVE_BATCH_DELAY = 1000; // 1 second
 
   // Process file save queue
@@ -389,7 +393,7 @@ if (!gotTheLock) {
 
     // If no valid files to save, skip this batch
     if (validBatch.length === 0) {
-      console.log('No valid files to save in this batch (folders no longer being indexed)');
+      // console.log('No valid files to save in this batch (folders no longer being indexed)');
 
       // Schedule next batch if there are more files
       if (fileSaveQueue.length > 0) {
@@ -1255,6 +1259,16 @@ if (!gotTheLock) {
     try {
       console.log(`Received request to remove folder from index: ${folderPath}`);
 
+      // Validate folderPath
+      if (!folderPath) {
+        console.error('Invalid folder path received:', folderPath);
+        return {
+          success: false,
+          error: 'Invalid folder path',
+          folderPath
+        };
+      }
+
       // First check if the folder is being indexed and stop indexation if needed
       const isBeingIndexed = foldersBeingIndexed.some(f => f.folderPath === folderPath);
       if (isBeingIndexed) {
@@ -1265,10 +1279,12 @@ if (!gotTheLock) {
 
       // Stop watching the folder
       const watchingStopped = await stopWatchingFolder(folderPath);
+      console.log(`Folder watching stopped: ${watchingStopped}`);
 
       // Get the folder ID from the renderer process
       const mainWindow = BrowserWindow.fromWebContents(event.sender);
       if (!mainWindow) {
+        console.error('No main window found for event sender');
         return {
           success: false,
           error: 'No window found',
@@ -1278,10 +1294,13 @@ if (!gotTheLock) {
         };
       }
 
+      console.log(`Requesting folder ID for path: ${folderPath}`);
+
       // Create a promise that will be resolved when we get the folder ID from the renderer process
       const folderIdPromise = new Promise((resolve) => {
         // Set up a one-time listener for the folder ID response
         ipcMain.once('folder-id-response', (event, response) => {
+          console.log(`Received folder ID response:`, response);
           resolve(response);
         });
 
@@ -1289,14 +1308,33 @@ if (!gotTheLock) {
         mainWindow.webContents.send('get-folder-id', { folderPath });
       });
 
-      // Wait for the folder ID
-      const folderIdResponse = await folderIdPromise;
+      // Wait for the folder ID with a timeout
+      let folderIdResponse;
+      try {
+        // Add a timeout to the promise
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout waiting for folder ID')), 15000);
+        });
+
+        folderIdResponse = await Promise.race([folderIdPromise, timeoutPromise]);
+      } catch (timeoutError) {
+        console.error('Timeout waiting for folder ID response:', timeoutError);
+        return {
+          success: false,
+          error: 'Timeout waiting for folder ID',
+          folderPath,
+          watchingStopped,
+          indexationStopped: isBeingIndexed
+        };
+      }
 
       let filesRemoved = 0;
 
-      if (folderIdResponse.success && folderIdResponse.folderId) {
+      if (folderIdResponse && folderIdResponse.success && folderIdResponse.folderId) {
         // Remove all files for this folder from the database
         const folderId = folderIdResponse.folderId;
+        console.log(`Removing files from database for folder ID: ${folderId}`);
+
         try {
           const result = await db.removeFolderFromIndex(folderId);
           filesRemoved = result.count;
@@ -1305,8 +1343,11 @@ if (!gotTheLock) {
           console.error(`Error removing files from database for folder ${folderPath}:`, dbError);
           // Continue with the operation even if database removal fails
         }
+      } else {
+        console.warn(`Invalid folder ID response:`, folderIdResponse);
       }
 
+      console.log(`Folder removal from index completed successfully`);
       return {
         success: true,
         folderPath,
@@ -1383,7 +1424,8 @@ if (!gotTheLock) {
       console.log(`Received indexed files response for folder: ${response.folderPath}`);
 
       // Emit the response event to resolve the promise in the get-indexed-files-for-folder handler
-      event.sender.send('indexed-files-response', response);
+      // Use ipcMain.emit instead of event.sender.send to ensure the event is emitted within the main process
+      ipcMain.emit('indexed-files-response', event, response);
 
       return { success: true };
     } catch (error) {
@@ -1398,7 +1440,8 @@ if (!gotTheLock) {
       console.log(`Received folder ID response for folder: ${response.folderPath}`);
 
       // Emit the response event to resolve the promise in handlers that need folder ID
-      event.sender.send('folder-id-response', response);
+      // Use ipcMain.emit instead of event.sender.send to ensure the event is emitted within the main process
+      ipcMain.emit('folder-id-response', event, response);
 
       return { success: true };
     } catch (error) {

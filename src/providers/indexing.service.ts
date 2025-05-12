@@ -241,10 +241,15 @@ export class IndexingService implements OnDestroy {
     // Find the folder ID for the given folder path
     this.foldersService.getFolders().subscribe(
       folders => {
+        console.log(`Found ${folders.length} folders in storage`);
+
+        // First try to find an exact match
         const folder = folders.find(f => f.path === data.folderPath);
 
         if (!folder) {
           console.error(`Folder not found for path: ${data.folderPath}`);
+          console.log(`Available folder paths: ${folders.map(f => f.path).join(', ')}`);
+
           // Send error response back to main process
           this.sendFolderIdResponse({
             success: false,
@@ -252,6 +257,13 @@ export class IndexingService implements OnDestroy {
             folderPath: data.folderPath
           });
           return;
+        }
+
+        console.log(`Found folder with ID ${folder.id} for path ${data.folderPath}`);
+
+        // Check if the folder is being deleted
+        if (folder.deleting) {
+          console.log(`Folder ${folder.name} (${folder.id}) is being deleted, but we can still use its ID`);
         }
 
         // Send folder ID back to main process
@@ -522,22 +534,31 @@ export class IndexingService implements OnDestroy {
    * @returns Observable that completes when the folder is removed from the index
    */
   removeFolderFromIndex(folder: Folder): Observable<boolean> {
-    console.log(`Removing folder from index: ${folder.name} (${folder.path})`);
+    // Check if folder is valid and has a path
+    if (!folder || !folder.path) {
+      console.error('Invalid folder object or missing path:', folder);
+      return of(false);
+    }
+
+    const folderName = folder.name || 'Unknown folder';
+    const folderPath = folder.path;
+
+    console.log(`Removing folder from index: ${folderName} (${folderPath})`);
 
     // Call the Electron main process to remove the folder from the watchers and database
-    return from(this.electronWindowService.removeFolderFromIndex(folder.path)).pipe(
+    return from(this.electronWindowService.removeFolderFromIndex(folderPath)).pipe(
       map(result => {
         if (result.success) {
-          console.log(`Successfully removed folder from index: ${folder.name}`);
-          console.log(`Removed ${result.filesRemoved} files from database for folder: ${folder.name}`);
+          console.log(`Successfully removed folder from index: ${folderName}`);
+          console.log(`Removed ${result.filesRemoved} files from database for folder: ${folderName}`);
           return true;
         } else {
-          console.error(`Error removing folder from index: ${folder.name}`, result.error);
+          console.error(`Error removing folder from index: ${folderName}`, result.error);
           return false;
         }
       }),
       catchError(error => {
-        console.error(`Error removing folder from index: ${folder.name}`, error);
+        console.error(`Error removing folder from index: ${folderName}`, error);
         return of(false);
       })
     );
