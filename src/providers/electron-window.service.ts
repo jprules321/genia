@@ -9,6 +9,8 @@ export interface IndexationProgressUpdate {
   totalFiles: number;
   progress: number;
   status?: 'indexing' | 'indexed' | 'stopped';
+  errors?: number;
+  currentFile?: string;
 }
 
 // Update Window interface to include your electronAPI methods
