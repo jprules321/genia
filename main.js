@@ -1093,23 +1093,29 @@ if (!gotTheLock) {
   // Helper function to check if a file should be indexed
   function shouldIndexFile(filePath) {
     // Skip hidden files and directories
-    if (path.basename(filePath).startsWith('.')) {
+    if (path.basename(filePath).startsWith('.') && !indexingSettings.indexHiddenFiles) {
+      // console.log(`Skipping hidden file: ${filePath}`);
       return false;
     }
 
-    // Get file extension
-    const ext = path.extname(filePath).toLowerCase();
+    // Get file extension without the dot
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
 
-    // List of extensions to index
-    const indexableExtensions = [
-      '.txt', '.md', '.markdown', '.html', '.htm', '.xml', '.json',
-      '.js', '.ts', '.jsx', '.tsx', '.css', '.scss', '.less',
-      '.py', '.java', '.c', '.cpp', '.cs', '.go', '.rb', '.php',
-      '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.pdf',
-      '.rtf', '.csv'
-    ];
+    // Check if the extension is in the excluded extensions list
+    if (indexingSettings.excludedExtensions.includes(ext)) {
+      // console.log(`Skipping file with excluded extension: ${filePath} (extension: ${ext})`);
+      return false;
+    }
 
-    return indexableExtensions.includes(ext);
+    // Check if the file path matches any excluded patterns
+    for (const pattern of indexingSettings.excludedPatterns) {
+      if (filePath.includes(pattern)) {
+        console.log(`Skipping file matching excluded pattern: ${filePath} (pattern: ${pattern})`);
+        return false;
+      }
+    }
+
+    return true;
   }
 
   // Default indexing settings

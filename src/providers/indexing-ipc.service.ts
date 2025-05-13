@@ -4,6 +4,7 @@ import { map, catchError } from 'rxjs/operators';
 import { ElectronWindowService } from './electron-window.service';
 import { Folder } from '../components/folders/folders.component';
 import { CancellationToken } from './indexing.service';
+import { IndexingSettingsService } from './indexing-settings.service';
 
 /**
  * Service responsible for IPC communication with Electron related to indexing
@@ -14,7 +15,8 @@ import { CancellationToken } from './indexing.service';
 })
 export class IndexingIPCService {
   constructor(
-    private electronWindowService: ElectronWindowService
+    private electronWindowService: ElectronWindowService,
+    private indexingSettingsService: IndexingSettingsService
   ) {}
 
   /**
@@ -45,15 +47,25 @@ export class IndexingIPCService {
   invokeIndexFolder(folder: Folder, cancellationToken?: CancellationToken): Promise<any> {
     console.log(`Indexing folder: ${folder.name} (${folder.path})`);
 
+    // Get current indexing settings directly from the service
+    const localSettings = this.indexingSettingsService.getSettings();
+
     // Get current indexing settings to pass to the main process
     return this.electronWindowService.getIndexingSettings()
       .then(settingsResult => {
         const settings = settingsResult.success ? settingsResult.settings : null;
 
-        // Pass cancellation information and settings to the main process
+        // Ensure excluded extensions and patterns are explicitly included
+        const enhancedSettings = settings ? { ...settings } : {};
+        enhancedSettings.excludedExtensions = localSettings.excludedExtensions;
+        enhancedSettings.excludedPatterns = localSettings.excludedPatterns;
+
+        console.log('Passing excluded extensions to main process:', enhancedSettings.excludedExtensions);
+
+        // Pass cancellation information and enhanced settings to the main process
         return this.electronWindowService.indexFolder(folder.path, {
           canBeCancelled: true,
-          settings: settings
+          settings: enhancedSettings
         });
       })
       .catch(error => {
@@ -77,15 +89,25 @@ export class IndexingIPCService {
       name: folder.name
     }));
 
+    // Get current indexing settings directly from the service
+    const localSettings = this.indexingSettingsService.getSettings();
+
     // Get current indexing settings to pass to the main process
     return this.electronWindowService.getIndexingSettings()
       .then(settingsResult => {
         const settings = settingsResult.success ? settingsResult.settings : null;
 
-        // Pass cancellation information and settings to the main process
+        // Ensure excluded extensions and patterns are explicitly included
+        const enhancedSettings = settings ? { ...settings } : {};
+        enhancedSettings.excludedExtensions = localSettings.excludedExtensions;
+        enhancedSettings.excludedPatterns = localSettings.excludedPatterns;
+
+        console.log('Passing excluded extensions to main process:', enhancedSettings.excludedExtensions);
+
+        // Pass cancellation information and enhanced settings to the main process
         return this.electronWindowService.indexAllFolders(folderInfo, {
           canBeCancelled: true,
-          settings: settings
+          settings: enhancedSettings
         });
       })
       .catch(error => {
