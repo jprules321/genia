@@ -45,13 +45,21 @@ export class IndexingIPCService {
   invokeIndexFolder(folder: Folder, cancellationToken?: CancellationToken): Promise<any> {
     console.log(`Indexing folder: ${folder.name} (${folder.path})`);
 
-    // Pass cancellation information to the main process
-    return this.electronWindowService.indexFolder(folder.path, {
-      canBeCancelled: true
-    }).catch(error => {
-      console.error(`Error indexing folder ${folder.name}:`, error);
-      throw error;
-    });
+    // Get current indexing settings to pass to the main process
+    return this.electronWindowService.getIndexingSettings()
+      .then(settingsResult => {
+        const settings = settingsResult.success ? settingsResult.settings : null;
+
+        // Pass cancellation information and settings to the main process
+        return this.electronWindowService.indexFolder(folder.path, {
+          canBeCancelled: true,
+          settings: settings
+        });
+      })
+      .catch(error => {
+        console.error(`Error indexing folder ${folder.name}:`, error);
+        throw error;
+      });
   }
 
   /**
@@ -69,13 +77,21 @@ export class IndexingIPCService {
       name: folder.name
     }));
 
-    // Pass cancellation information to the main process
-    return this.electronWindowService.indexAllFolders(folderInfo, {
-      canBeCancelled: true
-    }).catch(error => {
-      console.error('Error indexing all folders:', error);
-      throw error;
-    });
+    // Get current indexing settings to pass to the main process
+    return this.electronWindowService.getIndexingSettings()
+      .then(settingsResult => {
+        const settings = settingsResult.success ? settingsResult.settings : null;
+
+        // Pass cancellation information and settings to the main process
+        return this.electronWindowService.indexAllFolders(folderInfo, {
+          canBeCancelled: true,
+          settings: settings
+        });
+      })
+      .catch(error => {
+        console.error('Error indexing all folders:', error);
+        throw error;
+      });
   }
 
   /**

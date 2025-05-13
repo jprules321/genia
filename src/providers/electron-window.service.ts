@@ -25,9 +25,9 @@ declare global {
       // Include your existing electronAPI methods
       showOpenDialog: (options: any) => Promise<any>;
       // File indexing and watching methods
-      indexFolder: (folderPath: string, options?: { canBeCancelled?: boolean }) => Promise<any>;
+      indexFolder: (folderPath: string, options?: { canBeCancelled?: boolean, settings?: any }) => Promise<any>;
       cancelFolderIndexation: (folderPath: string) => Promise<any>;
-      indexAllFolders: (folderPaths: string[], options?: { canBeCancelled?: boolean }) => Promise<any>;
+      indexAllFolders: (folderPaths: string[], options?: { canBeCancelled?: boolean, settings?: any }) => Promise<any>;
       startWatchingFolders: (folderPaths: string[]) => Promise<any>;
       stopWatchingFolders: () => Promise<any>;
       stopFolderIndexation: (folderPath: string) => Promise<any>;
@@ -175,9 +175,9 @@ export class ElectronWindowService {
   /**
    * Index a single folder
    * @param folderPath Path to the folder to index
-   * @param options Optional indexing options, including cancellation support
+   * @param options Optional indexing options, including cancellation support and settings
    */
-  async indexFolder(folderPath: string, options?: { canBeCancelled?: boolean }): Promise<any> {
+  async indexFolder(folderPath: string, options?: { canBeCancelled?: boolean, settings?: any }): Promise<any> {
     if (this.isElectron) {
       return await window.electronAPI.indexFolder(folderPath, options);
     }
@@ -198,9 +198,9 @@ export class ElectronWindowService {
   /**
    * Index multiple folders
    * @param folderPaths Array of folder information to index
-   * @param options Optional indexing options, including cancellation support
+   * @param options Optional indexing options, including cancellation support and settings
    */
-  async indexAllFolders(folderPaths: { id: string; path: string; name: string; }[], options?: { canBeCancelled?: boolean }): Promise<any> {
+  async indexAllFolders(folderPaths: { id: string; path: string; name: string; }[], options?: { canBeCancelled?: boolean, settings?: any }): Promise<any> {
     if (this.isElectron) {
       // Extract just the paths for the Electron API
       const paths = folderPaths.map(folder => folder.path);

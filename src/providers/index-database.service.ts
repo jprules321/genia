@@ -48,9 +48,7 @@ export interface DatabaseStats {
   providedIn: 'root'
 })
 export class IndexDatabaseService {
-  private readonly MAX_RETRY_ATTEMPTS = 3;
-  private readonly RETRY_DELAY = 1000; // ms
-  private readonly BATCH_SIZE = 100;
+  // Use settings from IndexingSettingsService instead of hardcoded values
 
   constructor(
     private electronWindowService: ElectronWindowService,
@@ -155,10 +153,13 @@ export class IndexDatabaseService {
       file.lastIndexed = new Date();
     }
 
+    // Get settings for retry logic
+    const settings = this.indexingSettingsService.getSettings();
+
     return from(this.electronWindowService.saveIndexedFile(file)).pipe(
       retry({
-        count: this.MAX_RETRY_ATTEMPTS,
-        delay: this.RETRY_DELAY
+        count: settings.maxRetries,
+        delay: settings.retryDelayMs
       }),
       mergeMap(result => {
         if (!result.success) {
@@ -471,10 +472,13 @@ export class IndexDatabaseService {
    * Clear all indexed files from the database
    */
   clearAllIndexedFiles(): Observable<boolean> {
+    // Get settings for retry logic
+    const settings = this.indexingSettingsService.getSettings();
+
     return from(this.electronWindowService.clearAllIndexedFiles()).pipe(
       retry({
-        count: this.MAX_RETRY_ATTEMPTS,
-        delay: this.RETRY_DELAY
+        count: settings.maxRetries,
+        delay: settings.retryDelayMs
       }),
       map(result => {
         if (result.success) {

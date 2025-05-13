@@ -34,6 +34,13 @@ export class ContentTypeService {
    * Initialize the content type map with common file types
    */
   private initializeContentTypeMap(): void {
+    // Get settings for max file size
+    const settings = this.indexingSettingsService.getSettings();
+    const defaultMaxSizeBytes = settings.maxFileSizeBytes;
+
+    // Use 50% of max file size for text files and 100% for binary files
+    const textFileMaxSize = Math.min(10 * 1024 * 1024, defaultMaxSizeBytes); // Cap at 10MB or user setting
+    const binaryFileMaxSize = defaultMaxSizeBytes;
     // Text documents
     this.registerContentType({
       mimeType: 'text/plain',
@@ -41,7 +48,7 @@ export class ContentTypeService {
       category: 'document',
       isText: true,
       isIndexable: true,
-      maxSizeBytes: 10 * 1024 * 1024 // 10MB
+      maxSizeBytes: textFileMaxSize
     });
 
     this.registerContentType({
@@ -50,7 +57,7 @@ export class ContentTypeService {
       category: 'document',
       isText: true,
       isIndexable: true,
-      maxSizeBytes: 10 * 1024 * 1024 // 10MB
+      maxSizeBytes: textFileMaxSize
     });
 
     // HTML documents
@@ -60,7 +67,7 @@ export class ContentTypeService {
       category: 'document',
       isText: true,
       isIndexable: true,
-      maxSizeBytes: 10 * 1024 * 1024 // 10MB
+      maxSizeBytes: textFileMaxSize
     });
 
     // PDF documents
@@ -70,7 +77,7 @@ export class ContentTypeService {
       category: 'document',
       isText: false,
       isIndexable: true,
-      maxSizeBytes: 50 * 1024 * 1024 // 50MB
+      maxSizeBytes: binaryFileMaxSize
     });
 
     // Microsoft Office documents
@@ -80,7 +87,7 @@ export class ContentTypeService {
       category: 'document',
       isText: false,
       isIndexable: true,
-      maxSizeBytes: 50 * 1024 * 1024 // 50MB
+      maxSizeBytes: binaryFileMaxSize
     });
 
     this.registerContentType({
@@ -89,7 +96,7 @@ export class ContentTypeService {
       category: 'document',
       isText: false,
       isIndexable: true,
-      maxSizeBytes: 50 * 1024 * 1024 // 50MB
+      maxSizeBytes: binaryFileMaxSize
     });
 
     this.registerContentType({
@@ -98,7 +105,7 @@ export class ContentTypeService {
       category: 'document',
       isText: false,
       isIndexable: true,
-      maxSizeBytes: 50 * 1024 * 1024 // 50MB
+      maxSizeBytes: binaryFileMaxSize
     });
 
     this.registerContentType({
@@ -107,7 +114,7 @@ export class ContentTypeService {
       category: 'document',
       isText: false,
       isIndexable: true,
-      maxSizeBytes: 50 * 1024 * 1024 // 50MB
+      maxSizeBytes: binaryFileMaxSize
     });
 
     this.registerContentType({
@@ -116,7 +123,7 @@ export class ContentTypeService {
       category: 'document',
       isText: false,
       isIndexable: true,
-      maxSizeBytes: 50 * 1024 * 1024 // 50MB
+      maxSizeBytes: binaryFileMaxSize
     });
 
     this.registerContentType({
@@ -125,7 +132,7 @@ export class ContentTypeService {
       category: 'document',
       isText: false,
       isIndexable: true,
-      maxSizeBytes: 50 * 1024 * 1024 // 50MB
+      maxSizeBytes: binaryFileMaxSize
     });
 
     // Images
@@ -160,7 +167,7 @@ export class ContentTypeService {
       category: 'code',
       isText: true,
       isIndexable: true,
-      maxSizeBytes: 5 * 1024 * 1024 // 5MB
+      maxSizeBytes: textFileMaxSize
     });
 
     this.registerContentType({
@@ -169,7 +176,7 @@ export class ContentTypeService {
       category: 'code',
       isText: true,
       isIndexable: true,
-      maxSizeBytes: 5 * 1024 * 1024 // 5MB
+      maxSizeBytes: textFileMaxSize
     });
 
     this.registerContentType({
@@ -178,7 +185,7 @@ export class ContentTypeService {
       category: 'code',
       isText: true,
       isIndexable: true,
-      maxSizeBytes: 5 * 1024 * 1024 // 5MB
+      maxSizeBytes: textFileMaxSize
     });
 
     this.registerContentType({
@@ -187,7 +194,7 @@ export class ContentTypeService {
       category: 'code',
       isText: true,
       isIndexable: true,
-      maxSizeBytes: 10 * 1024 * 1024 // 10MB
+      maxSizeBytes: textFileMaxSize
     });
 
     this.registerContentType({
@@ -196,7 +203,7 @@ export class ContentTypeService {
       category: 'code',
       isText: true,
       isIndexable: true,
-      maxSizeBytes: 10 * 1024 * 1024 // 10MB
+      maxSizeBytes: textFileMaxSize
     });
 
     // Add more content types as needed
