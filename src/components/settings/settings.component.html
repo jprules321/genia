@@ -26,4 +26,211 @@
       </div>
     </div>
   </div>
+
+  <!-- Indexation Settings Section -->
+  <div class="settings-section">
+    <h3>Indexation Settings</h3>
+
+    <!-- File Processing Settings Card -->
+    <div class="settings-card">
+      <h4>File Processing</h4>
+
+      <!-- Maximum File Size -->
+      <div class="setting-item">
+        <label for="maxFileSize">Maximum File Size:</label>
+        <div class="input-with-dropdown">
+          <ejs-numerictextbox id="maxFileSize"
+            [(value)]="maxFileSizeInUnit"
+            [min]="0.1"
+            [max]="1000"
+            [step]="0.1"
+            [format]="'n1'"
+            (change)="onSettingChange()">
+          </ejs-numerictextbox>
+          <ejs-dropdownlist
+            [dataSource]="fileSizeUnits"
+            [fields]="{ text: 'text', value: 'value' }"
+            [(value)]="selectedFileSizeUnit.value"
+            (change)="onFileSizeUnitChange($event)">
+          </ejs-dropdownlist>
+        </div>
+        <div class="setting-description">
+          Maximum file size that will be indexed
+        </div>
+      </div>
+
+      <!-- Index Hidden Files -->
+      <div class="setting-item">
+        <label for="indexHiddenFiles">Index Hidden Files:</label>
+        <ejs-switch id="indexHiddenFiles"
+          [(checked)]="indexationSettings.indexHiddenFiles"
+          (change)="onSettingChange()">
+        </ejs-switch>
+        <div class="setting-description">
+          Whether to index hidden files and folders
+        </div>
+      </div>
+
+      <!-- Excluded Extensions -->
+      <div class="setting-item">
+        <label for="excludedExtensions">Excluded Extensions:</label>
+        <ejs-multiselect id="excludedExtensions"
+          [(value)]="indexationSettings.excludedExtensions"
+          [mode]="'Box'"
+          [allowCustomValue]="true"
+          [showClearButton]="true"
+          (change)="onSettingChange()">
+        </ejs-multiselect>
+        <div class="setting-description">
+          File extensions to exclude from indexing
+        </div>
+      </div>
+
+      <!-- Excluded Patterns -->
+      <div class="setting-item">
+        <label for="excludedPatterns">Excluded Patterns:</label>
+        <ejs-multiselect id="excludedPatterns"
+          [(value)]="indexationSettings.excludedPatterns"
+          [mode]="'Box'"
+          [allowCustomValue]="true"
+          [showClearButton]="true"
+          (change)="onSettingChange()">
+        </ejs-multiselect>
+        <div class="setting-description">
+          File patterns to exclude from indexing (e.g., node_modules, .git)
+        </div>
+      </div>
+    </div>
+
+    <!-- Performance Settings Card -->
+    <div class="settings-card">
+      <h4>Performance</h4>
+
+      <!-- Small Folder Batch Size -->
+      <div class="setting-item">
+        <label for="smallFolderBatchSize">Small Folder Batch Size:</label>
+        <ejs-numerictextbox id="smallFolderBatchSize"
+          [(value)]="indexationSettings.smallFolderBatchSize"
+          [min]="1"
+          [max]="100"
+          [step]="1"
+          (change)="onSettingChange()">
+        </ejs-numerictextbox>
+        <div class="setting-description">
+          Batch size for processing files in small folders (< 100 files)
+        </div>
+      </div>
+
+      <!-- Medium Folder Batch Size -->
+      <div class="setting-item">
+        <label for="mediumFolderBatchSize">Medium Folder Batch Size:</label>
+        <ejs-numerictextbox id="mediumFolderBatchSize"
+          [(value)]="indexationSettings.mediumFolderBatchSize"
+          [min]="1"
+          [max]="200"
+          [step]="1"
+          (change)="onSettingChange()">
+        </ejs-numerictextbox>
+        <div class="setting-description">
+          Batch size for processing files in medium folders (100-1000 files)
+        </div>
+      </div>
+
+      <!-- Large Folder Batch Size -->
+      <div class="setting-item">
+        <label for="largeFolderBatchSize">Large Folder Batch Size:</label>
+        <ejs-numerictextbox id="largeFolderBatchSize"
+          [(value)]="indexationSettings.largeFolderBatchSize"
+          [min]="1"
+          [max]="500"
+          [step]="1"
+          (change)="onSettingChange()">
+        </ejs-numerictextbox>
+        <div class="setting-description">
+          Batch size for processing files in large folders (> 1000 files)
+        </div>
+      </div>
+
+      <!-- Worker Count -->
+      <div class="setting-item">
+        <label for="workerCount">Worker Count:</label>
+        <ejs-slider id="workerCount"
+          [(value)]="indexationSettings.workerCount"
+          [min]="1"
+          [max]="maxCpuCores"
+          [step]="1"
+          [showButtons]="true"
+          [tooltip]="{ isVisible: true, placement: 'Before', showOn: 'Always' }"
+          [ticks]="{ placement: 'After', largeStep: 2, smallStep: 1, showSmallTicks: true }"
+          (change)="onSettingChange()">
+        </ejs-slider>
+        <div class="setting-description">
+          Number of parallel workers for indexation (max based on CPU cores)
+        </div>
+      </div>
+
+      <!-- Memory Threshold -->
+      <div class="setting-item">
+        <label for="memoryThresholdPercent">Memory Threshold (%):</label>
+        <ejs-slider id="memoryThresholdPercent"
+          [(value)]="indexationSettings.memoryThresholdPercent"
+          [min]="10"
+          [max]="95"
+          [step]="5"
+          [showButtons]="true"
+          [tooltip]="{ isVisible: true, placement: 'Before', showOn: 'Always' }"
+          [ticks]="{ placement: 'After', largeStep: 20, smallStep: 5, showSmallTicks: true }"
+          (change)="onSettingChange()">
+        </ejs-slider>
+        <div class="setting-description">
+          Maximum memory usage percentage before throttling indexation
+        </div>
+      </div>
+    </div>
+
+    <!-- Error Handling Settings Card -->
+    <div class="settings-card">
+      <h4>Error Handling</h4>
+
+      <!-- Maximum Retries -->
+      <div class="setting-item">
+        <label for="maxRetries">Maximum Retries:</label>
+        <ejs-numerictextbox id="maxRetries"
+          [(value)]="indexationSettings.maxRetries"
+          [min]="0"
+          [max]="10"
+          [step]="1"
+          (change)="onSettingChange()">
+        </ejs-numerictextbox>
+        <div class="setting-description">
+          Maximum number of retries for failed operations
+        </div>
+      </div>
+
+      <!-- Retry Delay -->
+      <div class="setting-item">
+        <label for="retryDelayMs">Retry Delay (ms):</label>
+        <ejs-numerictextbox id="retryDelayMs"
+          [(value)]="indexationSettings.retryDelayMs"
+          [min]="100"
+          [max]="10000"
+          [step]="100"
+          (change)="onSettingChange()">
+        </ejs-numerictextbox>
+        <div class="setting-description">
+          Delay between retries in milliseconds
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="settings-actions">
+      <button ejs-button cssClass="e-primary" (click)="saveIndexationSettings()" [disabled]="!settingsModified || isSavingSettings">
+        {{ isSavingSettings ? 'Saving...' : 'Save Settings' }}
+      </button>
+      <button ejs-button (click)="resetIndexationSettings()" [disabled]="isSavingSettings">
+        Reset to Defaults
+      </button>
+    </div>
+  </div>
 </div>

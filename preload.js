@@ -89,5 +89,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Database operations
   getDatabasePath: () => ipcRenderer.invoke('get-database-path'),
-  clearAllIndexedFiles: () => ipcRenderer.invoke('clear-all-indexed-files')
+  clearAllIndexedFiles: () => ipcRenderer.invoke('clear-all-indexed-files'),
+
+  // Settings operations
+  getIndexingSettings: () => ipcRenderer.invoke('get-indexing-settings'),
+  saveIndexingSettings: (settings) => ipcRenderer.invoke('save-indexing-settings', settings)
 });

@@ -146,6 +146,7 @@
       align-items: center;
       justify-content: center;
       gap: 8px;
+      flex-wrap: wrap;
 
       .progress-bar-small {
         height: 6px;
@@ -165,6 +166,13 @@
         font-size: 12px;
         color: #666;
         min-width: 30px;
+      }
+
+      .queue-info {
+        font-size: 11px;
+        color: #ff9800;
+        font-style: italic;
+        margin-left: 4px;
       }
     }
 

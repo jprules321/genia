@@ -32,6 +32,12 @@ export interface IndexingSettings {
 
   /** Delay between retries in milliseconds */
   retryDelayMs: number;
+
+  /** Number of parallel workers for indexation (default: CPU cores - 1 or 4 if not available) */
+  workerCount: number;
+
+  /** Maximum memory usage percentage before throttling indexation (default: 80%) */
+  memoryThresholdPercent: number;
 }
 
 /**
@@ -68,6 +74,10 @@ export const DEFAULT_INDEXING_SETTINGS: IndexingSettings = {
   largeFolderBatchSize: 100,
   maxRetries: 3,
   retryDelayMs: 1000,
+  workerCount: typeof navigator !== 'undefined' && navigator.hardwareConcurrency
+    ? Math.max(1, navigator.hardwareConcurrency - 1) // Leave one core for the main thread
+    : 4,
+  memoryThresholdPercent: 80,
 };
 
 /**

@@ -269,6 +269,9 @@ if (!gotTheLock) {
     console.log('__dirname:', __dirname);
     console.log('app.getAppPath():', app.getAppPath());
 
+    // Load indexing settings from disk
+    await loadIndexingSettings();
+
     createWindow();
     createTray();
 
@@ -1109,10 +1112,97 @@ if (!gotTheLock) {
     return indexableExtensions.includes(ext);
   }
 
+  // Default indexing settings
+  const DEFAULT_INDEXING_SETTINGS = {
+    smallFolderBatchSize: 20,
+    mediumFolderBatchSize: 50,
+    largeFolderBatchSize: 100,
+    maxFileSizeBytes: 10 * 1024 * 1024, // 10MB
+    excludedExtensions: [
+      'exe', 'dll', 'so', 'dylib', // Binaries
+      'zip', 'rar', 'tar', 'gz', 'tgz', '7z', // Archives
+      'jpg', 'jpeg', 'png', 'gif', 'bmp', 'ico', 'svg', // Images
+      'mp3', 'wav', 'ogg', 'flac', 'm4a', // Audio
+      'mp4', 'avi', 'mkv', 'mov', 'wmv', // Video
+      'db', 'sqlite', 'sqlite3', // Databases
+    ],
+    excludedPatterns: [
+      'node_modules',
+      '.git',
+      '.svn',
+      '.hg',
+      '.DS_Store',
+      'Thumbs.db',
+      '__pycache__',
+      '.vscode',
+      '.idea',
+      'dist',
+      'build',
+      'bin',
+      'obj',
+    ],
+    indexHiddenFiles: false,
+    maxRetries: 3,
+    retryDelayMs: 1000,
+    workerCount: 4,
+    memoryThresholdPercent: 80,
+  };
+
+  // Initialize indexing settings with defaults
+  let indexingSettings = { ...DEFAULT_INDEXING_SETTINGS };
+
+  // Function to load indexing settings from disk
+  async function loadIndexingSettings() {
+    try {
+      const userDataPath = app.getPath('userData');
+      const settingsPath = path.join(userDataPath, 'indexing-settings.json');
+
+      // Check if the settings file exists
+      if (fs.existsSync(settingsPath)) {
+        const settingsData = await fsPromises.readFile(settingsPath, 'utf8');
+        const savedSettings = JSON.parse(settingsData);
+
+        // Merge saved settings with defaults to ensure all properties exist
+        indexingSettings = { ...DEFAULT_INDEXING_SETTINGS, ...savedSettings };
+
+        console.log('Loaded indexing settings from disk:', indexingSettings);
+
+        // Update the batch size for file saving
+        FILE_SAVE_BATCH_SIZE = indexingSettings.largeFolderBatchSize;
+        console.log('File save batch size set to:', FILE_SAVE_BATCH_SIZE);
+      } else {
+        console.log('No saved indexing settings found, using defaults');
+      }
+    } catch (error) {
+      console.error('Error loading indexing settings:', error);
+      // Fall back to defaults if loading fails
+      indexingSettings = { ...DEFAULT_INDEXING_SETTINGS };
+    }
+  }
+
+  // Function to save indexing settings to disk
+  async function saveIndexingSettings() {
+    try {
+      const userDataPath = app.getPath('userData');
+      const settingsPath = path.join(userDataPath, 'indexing-settings.json');
+
+      // Create the settings directory if it doesn't exist
+      await fsPromises.mkdir(path.dirname(settingsPath), { recursive: true });
+
+      // Write the settings to disk
+      await fsPromises.writeFile(settingsPath, JSON.stringify(indexingSettings, null, 2), 'utf8');
+
+      console.log('Saved indexing settings to disk');
+    } catch (error) {
+      console.error('Error saving indexing settings:', error);
+    }
+  }
+
   // Queue for batching file save messages to renderer
   let fileSaveQueue = [];
   let fileSaveTimer = null;
-  const FILE_SAVE_BATCH_SIZE = 250;
+  // Use the large folder batch size from settings as the default batch size
+  let FILE_SAVE_BATCH_SIZE = indexingSettings.largeFolderBatchSize;
   const FILE_SAVE_BATCH_DELAY = 1000; // 1 second
 
   // Process file save queue
@@ -2399,6 +2489,43 @@ if (!gotTheLock) {
       };
     } catch (error) {
       console.error('Error clearing all indexed files:', error);
+      return { success: false, error: error.toString() };
+    }
+  });
+
+  // Handler for getting indexing settings
+  ipcMain.handle('get-indexing-settings', async (event) => {
+    try {
+      return {
+        success: true,
+        settings: indexingSettings
+      };
+    } catch (error) {
+      console.error('Error getting indexing settings:', error);
+      return { success: false, error: error.toString() };
+    }
+  });
+
+  // Handler for saving indexing settings
+  ipcMain.handle('save-indexing-settings', async (event, settings) => {
+    try {
+      // Update the indexing settings
+      indexingSettings = { ...indexingSettings, ...settings };
+
+      // Update the batch size for file saving
+      FILE_SAVE_BATCH_SIZE = indexingSettings.largeFolderBatchSize;
+
+      console.log('Indexing settings updated:', indexingSettings);
+      console.log('File save batch size updated to:', FILE_SAVE_BATCH_SIZE);
+
+      // Save the settings to disk
+      await saveIndexingSettings();
+
+      return {
+        success: true
+      };
+    } catch (error) {
+      console.error('Error saving indexing settings:', error);
       return { success: false, error: error.toString() };
     }
   });

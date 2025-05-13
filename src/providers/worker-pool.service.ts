@@ -1,6 +1,7 @@
 import { Injectable, OnDestroy } from '@angular/core';
-import { Observable, Subject, from, of, throwError } from 'rxjs';
-import { map, catchError, finalize, tap } from 'rxjs/operators';
+import { Observable, Subject, from, of, throwError, Subscription } from 'rxjs';
+import { map, catchError, finalize, tap, takeUntil } from 'rxjs/operators';
+import { IndexingSettingsService } from './indexing-settings.service';
 
 /**
  * Interface for a worker task
@@ -25,7 +26,10 @@ export class WorkerPoolService implements OnDestroy {
   private activeWorkers: Map<Worker, WorkerTask<any, any> | null> = new Map();
   private isProcessing = false;
   private memoryUsageInterval: any = null;
-  private memoryThresholdPercent = 80; // Default threshold at 80% of available memory
+  private memoryThresholdPercent: number;
+  private targetWorkerCount: number;
+  private settingsSubscription: Subscription;
+  private destroy$ = new Subject<void>();
 
   // Memory usage statistics
   private memoryStats = {
@@ -48,34 +52,98 @@ export class WorkerPoolService implements OnDestroy {
   // Observable for memory usage updates
   public memoryUsage$ = this.memoryUsageSubject.asObservable();
 
-  constructor() {
+  constructor(private indexingSettingsService: IndexingSettingsService) {
+    // Get initial settings
+    const settings = this.indexingSettingsService.getSettings();
+    this.memoryThresholdPercent = settings.memoryThresholdPercent;
+    this.targetWorkerCount = settings.workerCount;
+
     // Initialize the worker pool
     this.initializeWorkerPool();
 
     // Start monitoring memory usage
     this.startMemoryMonitoring();
+
+    // Subscribe to settings changes
+    this.settingsSubscription = this.indexingSettingsService.getSettings$()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(newSettings => {
+        // Update memory threshold
+        this.memoryThresholdPercent = newSettings.memoryThresholdPercent;
+
+        // Update worker pool if worker count changed
+        if (newSettings.workerCount !== this.targetWorkerCount) {
+          this.updateWorkerPool(newSettings.workerCount);
+        }
+      });
   }
 
   ngOnDestroy(): void {
     this.terminateWorkerPool();
     this.stopMemoryMonitoring();
+
+    // Clean up subscriptions
+    if (this.settingsSubscription) {
+      this.settingsSubscription.unsubscribe();
+    }
+
+    // Complete the destroy subject
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   /**
-   * Initialize the worker pool with the optimal number of workers
+   * Initialize the worker pool with the number of workers from settings
    */
   private initializeWorkerPool(): void {
-    // Determine the optimal number of workers based on CPU cores
-    // Use navigator.hardwareConcurrency if available, otherwise default to 4
-    const optimalWorkerCount = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
-      ? Math.max(1, navigator.hardwareConcurrency - 1) // Leave one core for the main thread
-      : 4;
+    // Get worker count from settings
+    const workerCount = this.indexingSettingsService.getSettings().workerCount;
 
-    console.log(`Initializing worker pool with ${optimalWorkerCount} workers`);
+    console.log(`Initializing worker pool with ${workerCount} workers`);
 
     // Create the workers
-    for (let i = 0; i < optimalWorkerCount; i++) {
+    for (let i = 0; i < workerCount; i++) {
       this.createWorker();
+    }
+  }
+
+  /**
+   * Update the worker pool size based on settings changes
+   * @param newWorkerCount The new number of workers to use
+   */
+  private updateWorkerPool(newWorkerCount: number): void {
+    const currentWorkerCount = this.workers.length;
+
+    // Update the target worker count
+    this.targetWorkerCount = newWorkerCount;
+
+    // If the worker count hasn't changed, do nothing
+    if (newWorkerCount === currentWorkerCount) {
+      return;
+    }
+
+    console.log(`Updating worker pool: ${currentWorkerCount} -> ${newWorkerCount} workers`);
+
+    if (newWorkerCount > currentWorkerCount) {
+      // Add more workers
+      for (let i = 0; i < newWorkerCount - currentWorkerCount; i++) {
+        this.createWorker();
+      }
+    } else {
+      // Remove excess workers
+      // Start with idle workers first
+      const workersToRemove = this.workers.length - newWorkerCount;
+      const idleWorkers = Array.from(this.activeWorkers.entries())
+        .filter(([worker, task]) => task === null)
+        .map(([worker]) => worker);
+
+      // Remove idle workers first
+      for (let i = 0; i < Math.min(idleWorkers.length, workersToRemove); i++) {
+        this.terminateWorker(idleWorkers[i]);
+      }
+
+      // If we still need to remove more workers, they'll be terminated when they finish their current tasks
+      // This is handled in the worker.onmessage handler
     }
   }
 
@@ -207,8 +275,16 @@ export class WorkerPoolService implements OnDestroy {
       // Mark the worker as free
       this.activeWorkers.set(worker, null);
 
-      // Process the next task
-      this.processNextTask();
+      // Check if we need to terminate this worker due to excess workers
+      if (this.workers.length > this.targetWorkerCount) {
+        // Terminate this worker since it just finished its task
+        this.terminateWorker(worker);
+        // Process the next task with remaining workers
+        this.processNextTask();
+      } else {
+        // Process the next task
+        this.processNextTask();
+      }
     };
 
     // Handle worker errors
@@ -225,8 +301,16 @@ export class WorkerPoolService implements OnDestroy {
         this.activeWorkers.set(worker, null);
       }
 
-      // Process the next task
-      this.processNextTask();
+      // Check if we need to terminate this worker due to excess workers
+      if (this.workers.length > this.targetWorkerCount) {
+        // Terminate this worker since it just encountered an error
+        this.terminateWorker(worker);
+        // Process the next task with remaining workers
+        this.processNextTask();
+      } else {
+        // Process the next task
+        this.processNextTask();
+      }
     };
 
     // Add the worker to the pool
@@ -234,6 +318,37 @@ export class WorkerPoolService implements OnDestroy {
     this.activeWorkers.set(worker, null);
 
     return worker;
+  }
+
+  /**
+   * Terminate a specific worker
+   * @param worker The worker to terminate
+   */
+  private terminateWorker(worker: Worker): void {
+    console.log('Terminating a worker');
+
+    // Get the task that the worker is currently processing
+    const task = this.activeWorkers.get(worker);
+
+    // If the worker is processing a task, add it back to the queue
+    if (task) {
+      this.taskQueue.unshift(task);
+    }
+
+    // Terminate the worker
+    worker.terminate();
+
+    // Remove the worker from the arrays
+    const index = this.workers.indexOf(worker);
+    if (index !== -1) {
+      this.workers.splice(index, 1);
+    }
+    this.activeWorkers.delete(worker);
+
+    // If there are no more workers, stop processing
+    if (this.workers.length === 0) {
+      this.isProcessing = false;
+    }
   }
 
   /**

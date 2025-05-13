@@ -1,71 +1,76 @@
 <div class="control-section folders-container">
   <div class="header">
     <h2>Folders Management</h2>
-    <button ejs-button cssClass="e-primary" (click)="openAddFolderDialog()" [disabled]="isIndexing">Add New Folder</button>
+    <button ejs-button cssClass="e-primary" (click)="openAddFolderDialog()" [disabled]="(isIndexing$ | async)">Add New Folder</button>
   </div>
 
   <!-- Indexing Status -->
-  <div *ngIf="isIndexing" class="indexing-status">
-    <div class="status-message">
-      <span class="status-icon">⟳</span>
-      <span>Indexing folder: {{ indexingStatus.currentFolder || 'Processing' }}</span>
-      <button ejs-button cssClass="e-danger e-small e-round" iconCss="e-icons e-close" (click)="stopIndexation()" title="Stop indexation"></button>
+  <ng-container *ngIf="(isIndexing$ | async) as isIndexingValue">
+    <div *ngIf="isIndexingValue" class="indexing-status">
+      <div class="status-message">
+        <span class="status-icon">⟳</span>
+        <span>Indexing folder: {{ (indexingStatus$ | async)?.currentFolder || 'Processing' }}</span>
+        <button ejs-button cssClass="e-danger e-small e-round" iconCss="e-icons e-close" (click)="stopIndexation()" title="Stop indexation"></button>
+      </div>
+      <div class="progress-bar">
+        <div class="progress" [style.width.%]="(indexingStatus$ | async)?.progress"></div>
+      </div>
     </div>
-    <div class="progress-bar">
-      <div class="progress" [style.width.%]="indexingStatus.progress"></div>
-    </div>
-  </div>
+  </ng-container>
 
   <!-- Folders List -->
   <div class="folders-list">
     <h3>Your Folders</h3>
 
-    <div *ngIf="folders.length === 0" class="empty-state">
-      No folders added yet. Add your first folder above.
-    </div>
+    <ng-container *ngIf="(folders$ | async) as foldersList">
+      <div *ngIf="foldersList.length === 0" class="empty-state">
+        No folders added yet. Add your first folder above.
+      </div>
 
-    <ejs-grid #grid [dataSource]="folders" *ngIf="folders.length > 0" [allowPaging]="true" [pageSettings]="{ pageSize: 10 }" [enableHover]="true" [allowTextWrap]="true" [width]="'100%'" [allowResizing]="true">
-      <e-columns>
-        <e-column field="name" headerText="Name" width="120"></e-column>
-        <e-column field="path" headerText="Path" width="180"></e-column>
-        <e-column field="createdAt" headerText="Created" width="100" type="date" format="yMd"></e-column>
-        <e-column headerText="Indexed" width="120" textAlign="Center">
-          <ng-template #template let-data>
-            <div class="indexing-progress">
-              <div class="progress-bar-small">
-                <div class="progress" [style.width.%]="data.indexingProgress || 0"></div>
+      <ejs-grid #grid [dataSource]="foldersList" *ngIf="foldersList.length > 0" [allowPaging]="true" [pageSettings]="{ pageSize: 10 }" [enableHover]="true" [allowTextWrap]="true" [width]="'100%'" [allowResizing]="true">
+        <e-columns>
+          <e-column field="name" headerText="Name" width="120"></e-column>
+          <e-column field="path" headerText="Path" width="180"></e-column>
+          <e-column field="createdAt" headerText="Created" width="100" type="date" format="yMd"></e-column>
+          <e-column headerText="Indexed" width="120" textAlign="Center">
+            <ng-template #template let-data>
+              <div class="indexing-progress">
+                <div class="progress-bar-small">
+                  <div class="progress" [style.width.%]="data.indexingProgress || 0"></div>
+                </div>
+                <span class="progress-text">{{ data.indexingProgress || 0 }}%</span>
+                <span *ngIf="data.filesInQueue && data.filesInQueue > 0" class="queue-info">({{ data.filesInQueue }} in queue)</span>
               </div>
-              <span class="progress-text">{{ data.indexingProgress || 0 }}%</span>
-            </div>
-          </ng-template>
-        </e-column>
-        <e-column headerText="Status" width="110" textAlign="Center">
-          <ng-template #template let-data>
-            <span *ngIf="data.deleting" class="status-badge status-deleting">Deleting...</span>
-            <span *ngIf="!data.deleting && data.status === 'indexed'" class="status-badge status-indexed">Indexed</span>
-            <span *ngIf="!data.deleting && data.status === 'indexing'" class="status-badge status-indexing">Indexing</span>
-            <span *ngIf="!data.deleting && data.status === 'stopped'" class="status-badge status-stopped">Stopped</span>
-            <span *ngIf="!data.deleting && !data.status" class="status-badge">-</span>
-          </ng-template>
-        </e-column>
-        <e-column headerText="Errors" width="80" textAlign="Center">
-          <ng-template #template let-data>
-            <div *ngIf="data.hasErrors" class="error-indicator">
-              <span class="error-count">{{ data.errorCount }}</span>
-              <button ejs-button cssClass="e-warning e-small" (click)="openErrorLog(data)">View Log</button>
-            </div>
-            <span *ngIf="!data.hasErrors">No errors</span>
-          </ng-template>
-        </e-column>
-        <e-column headerText="Actions" width="250" textAlign="Center" [freeze]="'Right'">
-          <ng-template #template let-data>
-            <button ejs-button cssClass="e-info e-small" (click)="updateFolder(data)" [disabled]="data.deleting">Edit</button>
-            <button ejs-button cssClass="e-danger e-small" (click)="deleteFolder(data.id)" [disabled]="data.deleting">Delete</button>
-            <button ejs-button cssClass="e-success e-small" (click)="openDirectory(data.path)">Open Directory</button>
-          </ng-template>
-        </e-column>
-      </e-columns>
-    </ejs-grid>
+            </ng-template>
+          </e-column>
+          <e-column headerText="Status" width="110" textAlign="Center">
+            <ng-template #template let-data>
+              <span *ngIf="data.deleting" class="status-badge status-deleting">Deleting...</span>
+              <span *ngIf="!data.deleting && data.status === 'indexed'" class="status-badge status-indexed">Indexed</span>
+              <span *ngIf="!data.deleting && data.status === 'indexing'" class="status-badge status-indexing">Indexing</span>
+              <span *ngIf="!data.deleting && data.status === 'stopped'" class="status-badge status-stopped">Stopped</span>
+              <span *ngIf="!data.deleting && !data.status" class="status-badge">-</span>
+            </ng-template>
+          </e-column>
+          <e-column headerText="Errors" width="80" textAlign="Center">
+            <ng-template #template let-data>
+              <div *ngIf="data.hasErrors" class="error-indicator">
+                <span class="error-count">{{ data.errorCount }}</span>
+                <button ejs-button cssClass="e-warning e-small" (click)="openErrorLog(data)">View Log</button>
+              </div>
+              <span *ngIf="!data.hasErrors">No errors</span>
+            </ng-template>
+          </e-column>
+          <e-column headerText="Actions" width="250" textAlign="Center" [freeze]="'Right'">
+            <ng-template #template let-data>
+              <button ejs-button cssClass="e-info e-small" (click)="updateFolder(data)" [disabled]="data.deleting">Edit</button>
+              <button ejs-button cssClass="e-danger e-small" (click)="deleteFolder(data.id)" [disabled]="data.deleting">Delete</button>
+              <button ejs-button cssClass="e-success e-small" (click)="openDirectory(data.path)">Open Directory</button>
+            </ng-template>
+          </e-column>
+        </e-columns>
+      </ejs-grid>
+    </ng-container>
   </div>
 
   <!-- Edit Dialog -->

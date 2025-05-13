@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { Observable, from, of } from 'rxjs';
 import { map, catchError } from 'rxjs/operators';
+import { IndexingSettingsService } from './indexing-settings.service';
 
 /**
  * Interface for content type information
@@ -25,7 +26,7 @@ export class ContentTypeService {
   // Map of file extensions to content type information
   private contentTypeMap: Map<string, ContentTypeInfo> = new Map();
 
-  constructor() {
+  constructor(private indexingSettingsService: IndexingSettingsService) {
     this.initializeContentTypeMap();
   }
 
@@ -248,6 +249,18 @@ export class ContentTypeService {
    * @param fileSize Size of the file in bytes
    */
   isFileIndexable(filePath: string, fileSize: number): Observable<{ indexable: boolean, reason?: string }> {
+    // Get the global max file size setting
+    const settings = this.indexingSettingsService.getSettings();
+    const globalMaxFileSize = settings.maxFileSizeBytes;
+
+    // Check if file exceeds the global max file size setting
+    if (fileSize > globalMaxFileSize) {
+      return of({
+        indexable: false,
+        reason: `File size (${fileSize} bytes) exceeds maximum size setting (${globalMaxFileSize} bytes)`
+      });
+    }
+
     return this.getContentTypeInfo(filePath).pipe(
       map(contentType => {
         if (!contentType.isIndexable) {

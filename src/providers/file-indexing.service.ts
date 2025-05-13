@@ -4,6 +4,7 @@ import { map, catchError } from 'rxjs/operators';
 import { ElectronWindowService } from './electron-window.service';
 import { CancellationToken } from './indexing.service';
 import { IndexationErrorType } from './indexing-error.service';
+import { IndexingSettingsService } from './indexing-settings.service';
 
 /**
  * Service responsible for the actual indexing of files
@@ -14,7 +15,8 @@ import { IndexationErrorType } from './indexing-error.service';
 })
 export class FileIndexingService {
   constructor(
-    private electronWindowService: ElectronWindowService
+    private electronWindowService: ElectronWindowService,
+    private indexingSettingsService: IndexingSettingsService
   ) {}
 
   /**
@@ -43,10 +45,38 @@ export class FileIndexingService {
   /**
    * Check if a file is indexable
    * @param filePath Path to the file to check
+   * @param fileSize Size of the file in bytes
+   * @param isHidden Whether the file is hidden
    */
-  isFileIndexable(filePath: string): Observable<boolean> {
-    // This would check if the file is of a supported type and not too large
-    // For now, we'll just return true
+  isFileIndexable(filePath: string, fileSize?: number, isHidden?: boolean): Observable<boolean> {
+    // Get the current indexing settings
+    const settings = this.indexingSettingsService.getSettings();
+
+    // Check if file should be excluded based on extension
+    if (this.indexingSettingsService.shouldExcludeByExtension(filePath)) {
+      console.log(`File ${filePath} excluded by extension`);
+      return of(false);
+    }
+
+    // Check if file should be excluded based on pattern
+    if (this.indexingSettingsService.shouldExcludeByPattern(filePath)) {
+      console.log(`File ${filePath} excluded by pattern`);
+      return of(false);
+    }
+
+    // Check if file should be excluded based on size
+    if (fileSize !== undefined && this.indexingSettingsService.shouldExcludeBySize(fileSize)) {
+      console.log(`File ${filePath} excluded by size (${fileSize} bytes)`);
+      return of(false);
+    }
+
+    // Check if file should be excluded based on hidden status
+    if (isHidden !== undefined && this.indexingSettingsService.shouldExcludeHidden(isHidden)) {
+      console.log(`File ${filePath} excluded because it's hidden`);
+      return of(false);
+    }
+
+    // If all checks pass, the file is indexable
     return of(true);
   }
 

@@ -12,6 +12,7 @@ import { FolderStatisticsService, FolderIndexingStats } from './folder-statistic
 import { IndexingErrorService, IndexationErrorType, IndexationError } from './indexing-error.service';
 import { FolderWatchingService } from './folder-watching.service';
 import { IndexingIPCService } from './indexing-ipc.service';
+import { IndexingSettingsService } from './indexing-settings.service';
 
 // Re-export interfaces and classes from other services for backward compatibility
 export type { IndexingStatus } from './indexing-status.service';
@@ -96,7 +97,8 @@ export class IndexingService implements OnDestroy {
     private folderStatisticsService: FolderStatisticsService,
     private indexingErrorService: IndexingErrorService,
     private folderWatchingService: FolderWatchingService,
-    private indexingIPCService: IndexingIPCService
+    private indexingIPCService: IndexingIPCService,
+    private indexingSettingsService: IndexingSettingsService
   ) {
     // Subscribe to indexation progress updates
     this.subscriptions.push(

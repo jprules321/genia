@@ -6,6 +6,7 @@ import { IndexDatabaseService, IndexedFile } from './index-database.service';
 import { ContentTypeService } from './content-type.service';
 import { CancellationToken } from './indexing.service';
 import { ElectronWindowService } from './electron-window.service';
+import { IndexingSettingsService } from './indexing-settings.service';
 
 /**
  * Interface for a file change
@@ -66,7 +67,8 @@ export class IncrementalIndexingService {
     private fileSystemService: FileSystemService,
     private indexDatabaseService: IndexDatabaseService,
     private contentTypeService: ContentTypeService,
-    private electronWindowService: ElectronWindowService
+    private electronWindowService: ElectronWindowService,
+    private indexingSettingsService: IndexingSettingsService
   ) {
     // Load any saved indexing sessions on startup
     this.loadSavedIndexingSessions().subscribe({

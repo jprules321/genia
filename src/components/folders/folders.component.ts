@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { FoldersService } from '../../providers/folders.service';
@@ -9,15 +9,16 @@ import { GridAllModule, GridComponent } from '@syncfusion/ej2-angular-grids';
 import { ButtonAllModule } from '@syncfusion/ej2-angular-buttons';
 import { TextBoxAllModule } from '@syncfusion/ej2-angular-inputs';
 import { DialogAllModule, DialogComponent } from '@syncfusion/ej2-angular-popups';
-import { Subscription, forkJoin } from 'rxjs';
-import {map} from 'rxjs/operators';
+import { Subscription, forkJoin, BehaviorSubject, Observable } from 'rxjs';
+import { map, distinctUntilChanged } from 'rxjs/operators';
 
 @Component({
   selector: 'app-folders',
   templateUrl: './folders.component.html',
   styleUrls: ['./folders.component.scss'],
   standalone: true,
-  imports: [CommonModule, FormsModule, GridAllModule, ButtonAllModule, TextBoxAllModule, DialogAllModule]
+  imports: [CommonModule, FormsModule, GridAllModule, ButtonAllModule, TextBoxAllModule, DialogAllModule],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class FoldersComponent implements OnInit, OnDestroy {
   @ViewChild('grid') public grid: GridComponent;
@@ -26,12 +27,15 @@ export class FoldersComponent implements OnInit, OnDestroy {
   @ViewChild('errorLogDialog') public errorLogDialog: DialogComponent;
 
   public folders: Folder[] = [];
+  public folders$ = new BehaviorSubject<Folder[]>([]);
   public newFolder: Folder = { id: '', path: '', name: '', createdAt: new Date() };
   public editingFolder: Folder = { id: '', path: '', name: '', createdAt: new Date() };
 
   // Indexing status
   public indexingStatus: IndexingStatus;
+  public indexingStatus$: Observable<IndexingStatus>;
   public isIndexing = false;
+  public isIndexing$: Observable<boolean>;
   private subscriptions: Subscription[] = [];
   private statusUpdateInterval: any;
 
@@ -65,10 +69,16 @@ export class FoldersComponent implements OnInit, OnDestroy {
   constructor(
     private foldersService: FoldersService,
     private electronWindowService: ElectronWindowService,
-    private indexingService: IndexingService
+    private indexingService: IndexingService,
+    private cdr: ChangeDetectorRef
   ) {
     this.indexingStatus = this.indexingService.getIndexingStatus();
+    this.indexingStatus$ = this.indexingService.getIndexingStatus$();
     this.isIndexing = [IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(this.indexingStatus.state);
+    this.isIndexing$ = this.indexingStatus$.pipe(
+      map(status => [IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(status.state))
+    );
+    this.folders$.next(this.folders);
   }
 
   ngOnInit(): void {
@@ -110,24 +120,56 @@ export class FoldersComponent implements OnInit, OnDestroy {
    * Start an interval to update the indexing status
    */
   private startStatusUpdateInterval(): void {
-    // Update status every 500ms
-    this.statusUpdateInterval = setInterval(() => {
-      // Update global indexing status
-      const newStatus = this.indexingService.getIndexingStatus();
-      const wasIndexing = this.isIndexing;
-      this.indexingStatus = newStatus;
-      this.isIndexing = [IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(newStatus.state);
+    // Subscribe to indexing status updates
+    const statusSubscription = this.indexingService.getIndexingStatus$()
+      .pipe(
+        distinctUntilChanged((prev, curr) => {
+          // Only trigger update if relevant properties have changed
+          return prev.state === curr.state &&
+                 prev.progress === curr.progress &&
+                 prev.currentFolder === curr.currentFolder;
+        })
+      )
+      .subscribe(newStatus => {
+        const wasIndexing = this.isIndexing;
+        this.indexingStatus = newStatus;
+        this.isIndexing = [IndexingState.INITIALIZING, IndexingState.COUNTING_FILES, IndexingState.INDEXING].includes(newStatus.state);
 
-      // Only update folder progress if indexing is in progress or just completed
-      if ((this.isIndexing || wasIndexing !== this.isIndexing) && this.folders && this.folders.length > 0) {
-        this.updateFolderIndexingProgress();
+        // Only update folder progress if indexing is in progress or just completed
+        if ((this.isIndexing || wasIndexing !== this.isIndexing) && this.folders && this.folders.length > 0) {
+          this.updateFolderIndexingProgress();
 
-        // If indexing just completed, check for errors
-        if (wasIndexing && !this.isIndexing) {
-          this.checkFolderErrors();
+          // If indexing just completed, check for errors
+          if (wasIndexing && !this.isIndexing) {
+            this.checkFolderErrors();
+          }
         }
+
+        // Explicitly trigger change detection
+        this.cdr.detectChanges();
+      });
+
+    // Add subscription to be cleaned up on destroy
+    this.subscriptions.push(statusSubscription);
+
+    // Also subscribe to folder statistics updates
+    const folderStatsSubscription = this.indexingService.getAllFolderIndexingStats$()
+      .subscribe(() => {
+        // Update folder progress when stats change
+        if (this.folders && this.folders.length > 0) {
+          this.updateFolderIndexingProgress();
+        }
+      });
+
+    // Add subscription to be cleaned up on destroy
+    this.subscriptions.push(folderStatsSubscription);
+
+    // Keep a small interval for UI updates that might be missed by the observables
+    this.statusUpdateInterval = setInterval(() => {
+      if (this.folders && this.folders.length > 0) {
+        this.updateFolderIndexingProgress();
       }
-    }, 500);
+    }, 1000); // Less frequent than before since we have observable subscriptions now
   }
 
   /**
@@ -166,6 +208,9 @@ export class FoldersComponent implements OnInit, OnDestroy {
           }
           return folder;
         });
+
+        // Explicitly trigger change detection
+        this.cdr.detectChanges();
       },
       error => {
         console.error('Error checking folder errors:', error);
@@ -213,6 +258,9 @@ export class FoldersComponent implements OnInit, OnDestroy {
                 errorCount: 0,
                 hasErrors: false
               };
+
+              // Explicitly trigger change detection
+              this.cdr.detectChanges();
             }
             this.currentErrorFolder = {
               ...this.currentErrorFolder,
@@ -349,10 +397,18 @@ export class FoldersComponent implements OnInit, OnDestroy {
       const stats = this.indexingService.getFolderIndexingStats(folder.id);
 
       if (stats) {
-        // Calculate progress percentage
-        const progress = stats.totalFiles > 0
-          ? Math.round((stats.indexedFiles / stats.totalFiles) * 100)
-          : 0;
+        // Calculate progress percentage, accounting for files in queue
+        const filesInQueue = stats.filesInQueue || 0;
+        let progress = 0;
+
+        if (stats.totalFiles > 0) {
+          // If there are files in the queue, cap progress at 99%
+          if (filesInQueue > 0) {
+            progress = Math.min(99, Math.round((stats.indexedFiles / stats.totalFiles) * 100));
+          } else {
+            progress = Math.min(100, Math.round((stats.indexedFiles / stats.totalFiles) * 100));
+          }
+        }
 
         // Determine folder status
         let status = folder.status;
@@ -366,7 +422,7 @@ export class FoldersComponent implements OnInit, OnDestroy {
           status = 'stopped';
         }
         // If folder is currently being indexed, mark as indexing
-        else if (isCurrentlyIndexing) {
+        else if (isCurrentlyIndexing || filesInQueue > 0) {
           status = 'indexing';
         }
         // If folder has progress but is not currently being indexed, keep previous status or default to indexed
@@ -375,14 +431,16 @@ export class FoldersComponent implements OnInit, OnDestroy {
         }
 
         // Only update if progress or status has changed
-        if (progress !== folder.indexingProgress || status !== folder.status) {
+        if (progress !== folder.indexingProgress || status !== folder.status ||
+            stats.indexedFiles !== folder.indexedFiles || stats.totalFiles !== folder.totalFiles) {
           hasChanges = true;
           return {
             ...folder,
             indexedFiles: stats.indexedFiles,
             totalFiles: stats.totalFiles,
             indexingProgress: progress,
-            status: status
+            status: status,
+            filesInQueue: filesInQueue
           };
         }
       }
@@ -392,6 +450,8 @@ export class FoldersComponent implements OnInit, OnDestroy {
     // Only update this.folders if there were changes
     if (hasChanges) {
       this.folders = updatedFolders;
+      this.folders$.next(updatedFolders);
+      // No need to explicitly trigger change detection when using observables
     }
   }
 
@@ -400,6 +460,7 @@ export class FoldersComponent implements OnInit, OnDestroy {
       folders => {
         // The service now returns folders with proper Date objects
         this.folders = folders;
+        this.folders$.next(folders);
 
         // Initialize indexing progress for each folder
         this.updateFolderIndexingProgress();
@@ -408,6 +469,8 @@ export class FoldersComponent implements OnInit, OnDestroy {
         if (folders.length > 0) {
           this.startWatchingFolders();
         }
+
+        // No need to explicitly trigger change detection when using observables
       },
       error => {
         console.error('Error loading folders:', error);
@@ -453,6 +516,9 @@ export class FoldersComponent implements OnInit, OnDestroy {
           this.editingFolder.path = path;
           this.editingFolder.name = name;
         }
+
+        // Explicitly trigger change detection to update the UI
+        this.cdr.detectChanges();
       }
     } catch (error) {
       console.error('Error selecting folder:', error);
@@ -461,15 +527,17 @@ export class FoldersComponent implements OnInit, OnDestroy {
 
   // Open add folder dialog
   openAddFolderDialog(): void {
-    // Check if indexation is in progress
-    if (this.isIndexing) {
-      alert('Cannot add a folder while indexation is in progress. Please wait for indexation to complete.');
-      return;
-    }
+    // Check if indexation is in progress using the latest value from the observable
+    this.isIndexing$.subscribe(isIndexing => {
+      if (isIndexing) {
+        alert('Cannot add a folder while indexation is in progress. Please wait for indexation to complete.');
+        return;
+      }
 
-    // Reset the new folder object
-    this.newFolder = { id: '', path: '', name: '', createdAt: new Date() };
-    this.addDialogVisible = true;
+      // Reset the new folder object
+      this.newFolder = { id: '', path: '', name: '', createdAt: new Date() };
+      this.addDialogVisible = true;
+    }).unsubscribe(); // Immediately unsubscribe to avoid memory leaks
   }
 
   // Close add folder dialog
@@ -512,7 +580,9 @@ export class FoldersComponent implements OnInit, OnDestroy {
     this.foldersService.addFolder(this.newFolder).subscribe(
       folder => {
         // The service now returns folders with proper Date objects
-        this.folders = [...this.folders, folder];
+        const updatedFolders = [...this.folders, folder];
+        this.folders = updatedFolders;
+        this.folders$.next(updatedFolders);
 
         // Close the dialog
         this.closeAddDialog();
@@ -599,11 +669,13 @@ export class FoldersComponent implements OnInit, OnDestroy {
         // The service now returns folders with proper Date objects
         const index = this.folders.findIndex(f => f.id === updatedFolder.id);
         if (index !== -1) {
-          this.folders = [
+          const updatedFolders = [
             ...this.folders.slice(0, index),
             updatedFolder,
             ...this.folders.slice(index + 1)
           ];
+          this.folders = updatedFolders;
+          this.folders$.next(updatedFolders);
         }
         this.closeDialog();
 
@@ -658,15 +730,15 @@ export class FoldersComponent implements OnInit, OnDestroy {
     // Mark the folder as being deleted
     const folderIndex = this.folders.findIndex(folder => folder.id === id);
     if (folderIndex !== -1) {
-      this.folders[folderIndex] = {
-        ...this.folders[folderIndex],
+      const updatedFolders = [...this.folders];
+      updatedFolders[folderIndex] = {
+        ...updatedFolders[folderIndex],
         deleting: true
       };
+      this.folders = updatedFolders;
+      this.folders$.next(updatedFolders);
 
-      // Force change detection to update the UI immediately
-      setTimeout(() => {
-        console.log(`UI updated to show folder ${folderToDelete.name} as deleting`);
-      }, 0);
+      console.log(`UI updated to show folder ${folderToDelete.name} as deleting`);
     }
 
     // Check if the folder is currently being indexed and stop indexation if needed
@@ -701,16 +773,16 @@ export class FoldersComponent implements OnInit, OnDestroy {
     console.log(`Marking folder ${folderToDelete.name} as being deleted...`);
     const folderIndex = this.folders.findIndex(folder => folder.id === id);
     if (folderIndex !== -1) {
-      this.folders[folderIndex] = {
-        ...this.folders[folderIndex],
+      const updatedFolders = [...this.folders];
+      updatedFolders[folderIndex] = {
+        ...updatedFolders[folderIndex],
         deleting: true
       };
+      this.folders = updatedFolders;
+      this.folders$.next(updatedFolders);
     }
 
-    // Force change detection to update the UI immediately
-    setTimeout(() => {
-      console.log(`UI updated to mark folder ${folderToDelete.name} as being deleted`);
-    }, 0);
+    console.log(`UI updated to mark folder ${folderToDelete.name} as being deleted`);
 
     // First remove folder from index (clears indexed files and stops watching)
     // This ensures indexed files are deleted from the database before the folder is deleted
@@ -728,7 +800,9 @@ export class FoldersComponent implements OnInit, OnDestroy {
               // we can safely remove it from the UI list
               console.log(`Removing folder ${folderToDelete.name} from UI list...`);
               console.log(`Before removal, folders count: ${this.folders.length}`);
-              this.folders = this.folders.filter(folder => folder.id !== id);
+              const updatedFolders = this.folders.filter(folder => folder.id !== id);
+              this.folders = updatedFolders;
+              this.folders$.next(updatedFolders);
               console.log(`After removal, folders count: ${this.folders.length}`);
 
               // Remove folder indexing stats
@@ -776,7 +850,9 @@ export class FoldersComponent implements OnInit, OnDestroy {
               // we can safely remove it from the UI list
               console.log(`Removing folder ${folderToDelete.name} from UI list...`);
               console.log(`Before removal, folders count: ${this.folders.length}`);
-              this.folders = this.folders.filter(folder => folder.id !== id);
+              const updatedFolders = this.folders.filter(folder => folder.id !== id);
+              this.folders = updatedFolders;
+              this.folders$.next(updatedFolders);
               console.log(`After removal, folders count: ${this.folders.length}`);
 
               // Remove folder indexing stats
@@ -829,4 +905,5 @@ export interface Folder {
   hasErrors?: boolean;
   status?: 'indexed' | 'indexing' | 'stopped';
   deleting?: boolean;
+  filesInQueue?: number; // Number of files waiting to be saved to the database
 }
